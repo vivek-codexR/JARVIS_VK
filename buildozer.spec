@@ -1,13 +1,13 @@
 [app]
 
-title = JARVIS V1.4
+title = JARVIS V1.5
 package.name = jarvisassistant
 package.domain = org.jarvis
 
 source.dir = .
 source.include_exts = py,json,png,jpg,kv
 
-version = 1.4.0
+version = 1.5.0
 
 requirements = python3,kivy,pyjnius
 

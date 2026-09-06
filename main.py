@@ -15,7 +15,7 @@ from jarvis_core import JarvisCore
 
 class JarvisApp(App):
     def build(self):
-        self.title = "JARVIS V1.4"
+        self.title = "JARVIS V1.5"
         self.app_files_dir = self.get_android_files_dir()
         self.data_file = os.path.join(self.app_files_dir, "jarvis_data.json")
         self.event_file = os.path.join(self.app_files_dir, "jarvis_voice_events.txt")
@@ -24,7 +24,7 @@ class JarvisApp(App):
         root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
 
         self.header = Label(
-            text="JARVIS V1.4\nYour Personal Assistant",
+            text="JARVIS V1.5\nYour Personal Assistant",
             font_size=dp(24), size_hint_y=None, height=dp(90)
         )
         root.add_widget(self.header)
@@ -118,17 +118,34 @@ class JarvisApp(App):
                 elif event.startswith("ERROR|"):
                     self.status.text = "VOICE ERROR"
                     self.output.text = "Voice error:\n\n" + event[6:]
+                elif event.startswith("TTS|"):
+                    self.status.text = "ONLINE • " + event
+                    self.output.text = "🔊 TTS: " + event[4:]
+                elif event.startswith("TTS_ERROR|"):
+                    self.status.text = "TTS ERROR"
+                    self.output.text = "🔊 TTS ERROR:\n\n" + event[10:]
+                elif event.startswith("LANG|"):
+                    self.output.text = "Language detected: " + event[5:]
                 elif event.startswith("PARTIAL|"):
                     self.output.text = "Listening...\n\n" + event[8:]
+                elif event.startswith("RAW|"):
+                    self.output.text = "RAW SPEECH RESULT:\n\n" + event[4:]
+                elif event.startswith("RESULTS|"):
+                    self.output.text = "ALL SPEECH CANDIDATES:\n\n" + event[8:]
                 elif event.startswith("HEARD|"):
                     self.output.text = "I heard:\n\n" + event[6:]
+                elif event.startswith("WAKECHECK|"):
+                    self.status.text = "ONLINE • WAKE WORD DETECTED"
                 elif event.startswith("WAKE|"):
                     self.output.text = (
-                        "JARVIS AWAKE\n\n"
-                        "Yes Boss. How can I help you?"
+                        "✅ JARVIS AWAKE\n\n"
+                        "🔊 Yes Boss. How can I help you?\n\n"
+                        + event[5:]
                     )
                 elif event.startswith("COMMAND|"):
                     self.handle(event[8:].strip())
+                elif event.startswith("DEBUG|"):
+                    self.status.text = "ONLINE • " + event[6:]
         except Exception:
             pass
 
