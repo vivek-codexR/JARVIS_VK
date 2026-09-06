@@ -123,11 +123,9 @@ class VoiceService:
         self.notify_app("STATUS|SERVICE STARTING")
         self.notify_app("DEBUG|V1.5 diagnostic voice engine")
 
-        try:
-            self.tts = self.TTS(self.context, self.tts_listener)
-        except Exception as e:
-            self.notify_app("TTS_ERROR|Could not create TTS: " + str(e))
-
+        # TextToSpeech is created on Android's main looper. Creating it from
+        # the service bootstrap thread can fail on some Android builds.
+        self.post(self.init_tts, 100)
         self.post(self.start_listening, 1000)
 
     def post(self, callback, delay_ms=0):
@@ -159,27 +157,17 @@ class VoiceService:
             pass
 
     # ---------------- TTS ----------------
-    def configure_tts(self):
-        if not self.tts:
-            return
+    def init_tts(self):
         try:
-            # Prefer Indian English; fall back to US English if necessary.
-            result = self.tts.setLanguage(self.Locale("en", "IN"))
-            if result in (self.TTS.LANG_MISSING_DATA, self.TTS.LANG_NOT_SUPPORTED):
-                result = self.tts.setLanguage(self.Locale.US)
-            self.tts_language_ok = result not in (
-                self.TTS.LANG_MISSING_DATA,
-                self.TTS.LANG_NOT_SUPPORTED,
-            )
-            self.notify_app("TTS|INIT_OK status=0 language_result=" + str(result))
-            if self.tts_language_ok:
-                self.post(lambda: self.speak("JARVIS voice system online."), 300)
-            else:
-                self.notify_app("TTS_ERROR|No supported English TTS language")
+            if self.tts is not None:
+                return
+            self.notify_app("TTS|CREATING_ON_MAIN_THREAD")
+            self.tts = self.TTS(self.context, self.tts_listener)
+            self.notify_app("TTS|OBJECT_CREATED")
         except Exception as e:
-            self.notify_app("TTS_ERROR|Language setup: " + str(e))
+            self.notify_app("TTS_ERROR|Could not create TTS on main thread: " + str(e))
 
-    def speak(self, text, queue=False):
+    def _speak_now(self, text, queue=False):
         if not text:
             return False
         try:
@@ -187,7 +175,7 @@ class VoiceService:
                 self.notify_app("TTS_ERROR|TTS object is null")
                 return False
             if not self.tts_ready:
-                self.notify_app("TTS_ERROR|TTS not ready")
+                self.notify_app("TTS_ERROR|TTS not ready (init_status=" + str(self.tts_init_status) + ")")
                 return False
             if not self.tts_language_ok:
                 self.notify_app("TTS_ERROR|TTS language unavailable")
@@ -201,8 +189,37 @@ class VoiceService:
             self.notify_app("TTS|SPEAK result=" + str(result) + " text=" + str(text)[:180])
             return result == self.TTS.SUCCESS
         except Exception as e:
-            self.notify_app("TTS_ERROR|speak: " + str(e))
+            self.notify_app("TTS_ERROR|speak(main): " + str(e))
             return False
+
+    def configure_tts(self):
+        if not self.tts:
+            return
+        try:
+            # Prefer Indian English; fall back to US English if necessary.
+            result = self.tts.setLanguage(self.Locale("en", "IN"))
+            if result in (self.TTS.LANG_MISSING_DATA, self.TTS.LANG_NOT_SUPPORTED):
+                result = self.tts.setLanguage(self.Locale.US)
+            self.tts_language_ok = result not in (
+                self.TTS.LANG_MISSING_DATA,
+                self.TTS.LANG_NOT_SUPPORTED,
+            )
+            self.notify_app("TTS|INIT_OK status=" + str(self.tts_init_status) + " language_result=" + str(result))
+            if self.tts_language_ok:
+                self.post(lambda: self.speak("JARVIS voice system online."), 300)
+            else:
+                self.notify_app("TTS_ERROR|No supported English TTS language")
+        except Exception as e:
+            self.notify_app("TTS_ERROR|Language setup: " + str(e))
+
+    def speak(self, text, queue=False):
+        if not text:
+            return False
+        # Recognition callbacks can arrive on a Binder thread. Always route
+        # actual TextToSpeech calls through Android's main looper.
+        self.post(lambda txt=str(text), q=queue: self._speak_now(txt, q), 0)
+        self.notify_app("TTS|SPEAK_QUEUED text=" + str(text)[:180])
+        return True
 
     # ---------------- Recognition ----------------
     def make_intent(self):
