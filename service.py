@@ -104,7 +104,7 @@ class VoiceService:
         self.last_text = ""
 
         self.files_dir = str(self.context.getFilesDir().getAbsolutePath())
-        self.event_file = os.path.join(self.files_dir, "jarvis_voice_event.txt")
+        self.event_file = os.path.join(self.files_dir, "jarvis_voice_events.txt")
 
         self.notify_app("STATUS|SERVICE STARTING")
         self.tts = self.TTS(self.context, self.tts_listener)
@@ -133,16 +133,17 @@ class VoiceService:
 
     def notify_app(self, event):
         try:
-            with open(self.event_file, "w", encoding="utf-8") as f:
-                f.write(event)
+            with open(self.event_file, "a", encoding="utf-8") as f:
+                f.write(event.replace("\n", " ") + "\n")
         except Exception:
             pass
 
-    def speak(self, text):
+    def speak(self, text, queue=False):
         try:
             if self.tts is not None and self.tts_ready:
+                mode = self.TTS.QUEUE_ADD if queue else self.TTS.QUEUE_FLUSH
                 self.tts.speak(
-                    text, self.TTS.QUEUE_FLUSH, None,
+                    text, mode, None,
                     "jarvis_" + str(int(time.time() * 1000))
                 )
         except Exception as e:
@@ -246,63 +247,76 @@ class VoiceService:
             self.schedule_restart(1000)
 
     def on_error(self, error):
+        # ERROR_NO_MATCH (7) is normal while waiting for a wake word.
+        if error == 7:
+            self.notify_app("STATUS|LISTENING — say JARVIS")
+            self.schedule_restart(400)
+            return
         names = {
-            1: "network error",
-            2: "network timeout",
-            3: "audio error",
-            4: "server error",
-            5: "client error",
-            6: "speech timeout",
-            7: "no match",
-            8: "recognizer busy",
-            9: "insufficient permissions",
-            10: "language unavailable",
-            11: "language not supported",
-            12: "server disconnected",
-            13: "cannot listen while in call"
+            1: "network error", 2: "network timeout", 3: "audio error",
+            4: "server error", 5: "client error", 6: "speech timeout",
+            8: "recognizer busy", 9: "insufficient permissions",
+            10: "language unavailable", 11: "language not supported",
+            12: "server disconnected", 13: "cannot listen while in call"
         }
-        self.notify_app("ERROR|SpeechRecognizer " + str(error) + ": " +
-                        names.get(error, "unknown error"))
-        self.schedule_restart(1200)
+        self.notify_app("ERROR|SpeechRecognizer " + str(error) + ": " + names.get(error, "unknown error"))
+        self.schedule_restart(1500)
 
     def process_text(self, text, partial=False):
         text = re.sub(r"\s+", " ", text.strip())
         if not text:
             return
 
-        if partial:
-            if not self.awake and self.contains_wake(text.lower()):
+        # Do not wait for a separate UI event: recognize the wake word first.
+        # Final results such as "Jarvis" or "Jarvis help" are the primary path.
+        if self.contains_wake(text):
+            remainder = self.remove_wake(text)
+            if not self.awake:
                 self.activate_wake(text)
+                if remainder.strip():
+                    # Keep the acknowledgement and command response in order.
+                    self.post(lambda: self.execute_command(remainder.strip()), 1500)
+                return
+
+        if partial:
+            self.notify_app("PARTIAL|" + text)
             return
 
         self.notify_app("HEARD|" + text)
-        low = text.lower()
 
         if not self.awake:
-            if self.contains_wake(low):
-                remainder = self.remove_wake(text)
-                self.activate_wake(text)
-                if remainder.strip():
-                    self.execute_command(remainder.strip())
             return
 
         self.awake = False
+        low = text.lower()
         if low in {"cancel", "stop", "never mind", "नहीं", "रहने दो"}:
-            self.speak("Okay Boss.")
-            self.notify_app("COMMAND|" + low)
-            self.schedule_restart(800)
+            self.speak("Okay Boss.", queue=False)
+            self.schedule_restart(700)
             return
 
         self.execute_command(text)
 
     @staticmethod
-    def contains_wake(text):
-        normalized = re.sub(r"[^a-z0-9\u0900-\u097f]+", " ", text.lower())
-        return bool(re.search(r"\bjarvis\b", normalized)) or "जार्विस" in normalized
+    def normalize_voice_text(text):
+        text = text.lower().strip()
+        text = text.replace("jar vis", "jarvis")
+        text = text.replace("jaarvis", "jarvis")
+        text = text.replace("jarvish", "jarvis")
+        text = re.sub(r"[^a-z0-9\u0900-\u097f]+", " ", text)
+        return re.sub(r"\s+", " ", text).strip()
 
-    @staticmethod
-    def remove_wake(text):
-        return re.sub(r"(?i)\bjarvis\b", "", text).replace("जार्विस", "").strip()
+    @classmethod
+    def contains_wake(cls, text):
+        normalized = cls.normalize_voice_text(text)
+        return "jarvis" in normalized or "जार्विस" in normalized
+
+    @classmethod
+    def remove_wake(cls, text):
+        cleaned = re.sub(r"(?i)jar\s*vis", "", text)
+        cleaned = re.sub(r"(?i)jaar\s*vis", "", cleaned)
+        cleaned = re.sub(r"(?i)jarvish", "", cleaned)
+        cleaned = cleaned.replace("जार्विस", "")
+        return re.sub(r"\s+", " ", cleaned).strip()
 
     def activate_wake(self, original):
         if self.awake:
@@ -316,7 +330,7 @@ class VoiceService:
             pass
         self.recognizer = None
         self.notify_app("WAKE|" + original)
-        self.speak("Yes Boss. How can I help you?")
+        self.speak("Yes Boss. How can I help you?", queue=False)
         self.post(self.start_listening, 1800)
 
     def execute_command(self, command):
@@ -325,7 +339,7 @@ class VoiceService:
             data_file = os.path.join(self.files_dir, "jarvis_data.json")
             response = JarvisCore(data_file).handle(command)
             self.notify_app("COMMAND|" + command)
-            self.speak(self.clean_for_speech(response))
+            self.speak(self.clean_for_speech(response), queue=True)
         except Exception as e:
             self.notify_app("ERROR|Command: " + str(e))
             self.speak("Sorry Boss, I could not process that command.")

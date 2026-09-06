@@ -15,16 +15,16 @@ from jarvis_core import JarvisCore
 
 class JarvisApp(App):
     def build(self):
-        self.title = "JARVIS V1.3"
+        self.title = "JARVIS V1.4"
         self.app_files_dir = self.get_android_files_dir()
         self.data_file = os.path.join(self.app_files_dir, "jarvis_data.json")
-        self.event_file = os.path.join(self.app_files_dir, "jarvis_voice_event.txt")
+        self.event_file = os.path.join(self.app_files_dir, "jarvis_voice_events.txt")
         self.core = JarvisCore(self.data_file)
 
         root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
 
         self.header = Label(
-            text="JARVIS V1.3\nYour Personal Assistant",
+            text="JARVIS V1.4\nYour Personal Assistant",
             font_size=dp(24), size_hint_y=None, height=dp(90)
         )
         root.add_widget(self.header)
@@ -109,36 +109,26 @@ class JarvisApp(App):
             if not os.path.exists(self.event_file):
                 return
             with open(self.event_file, "r", encoding="utf-8") as f:
-                event = f.read().strip()
+                events = [x.strip() for x in f.readlines() if x.strip()]
             os.remove(self.event_file)
-            if not event:
-                return
 
-            if event.startswith("STATUS|"):
-                msg = event[7:]
-                self.status.text = "ONLINE • " + msg
-                return
-
-            if event.startswith("ERROR|"):
-                msg = event[6:]
-                self.status.text = "VOICE ERROR"
-                self.output.text = "Voice error:\n\n" + msg
-                return
-
-            if event.startswith("HEARD|"):
-                self.output.text = "I heard:\n\n" + event[6:]
-                return
-
-            if event.startswith("WAKE|"):
-                self.output.text = (
-                    "JARVIS AWAKE\n\n"
-                    "Yes Boss. How can I help you?"
-                )
-                return
-
-            if event.startswith("COMMAND|"):
-                command = event[8:].strip()
-                self.handle(command)
+            for event in events:
+                if event.startswith("STATUS|"):
+                    self.status.text = "ONLINE • " + event[7:]
+                elif event.startswith("ERROR|"):
+                    self.status.text = "VOICE ERROR"
+                    self.output.text = "Voice error:\n\n" + event[6:]
+                elif event.startswith("PARTIAL|"):
+                    self.output.text = "Listening...\n\n" + event[8:]
+                elif event.startswith("HEARD|"):
+                    self.output.text = "I heard:\n\n" + event[6:]
+                elif event.startswith("WAKE|"):
+                    self.output.text = (
+                        "JARVIS AWAKE\n\n"
+                        "Yes Boss. How can I help you?"
+                    )
+                elif event.startswith("COMMAND|"):
+                    self.handle(event[8:].strip())
         except Exception:
             pass
 
