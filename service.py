@@ -27,7 +27,7 @@ class RecognitionListener(PythonJavaClass):
 
     @java_method("(Landroid/os/Bundle;)V")
     def onReadyForSpeech(self, params):
-        self.owner.notify_app("STATUS|LISTENING — say JARVIS")
+        self.owner.notify_app("STATUS|LISTENING — say VYRo")
 
     @java_method("()V")
     def onBeginningOfSpeech(self):
@@ -239,7 +239,7 @@ class VoiceService:
                 self.TTS.LANG_NOT_SUPPORTED,
             )
 
-            # Make the speech stream explicit so Android routes JARVIS voice
+            # Make the speech stream explicit so Android routes VYRo voice
             # through a normal audible media/speech path.
             try:
                 attrs = (self.AudioAttributesBuilder()
@@ -253,7 +253,7 @@ class VoiceService:
 
             self.notify_app("TTS|INIT_OK status=" + str(self.tts_init_status) + " language_result=" + str(result))
             if self.tts_language_ok:
-                self.post(lambda: self.speak("JARVIS voice system online."), 300)
+                self.post(lambda: self.speak("VYRo voice system online."), 300)
             else:
                 self.notify_app("TTS_ERROR|No supported English TTS language")
         except Exception as e:
@@ -327,7 +327,7 @@ class VoiceService:
             self.recognizer = self.SpeechRecognizer.createSpeechRecognizer(self.context)
             self.recognizer.setRecognitionListener(self.listener)
             self.recognizer.startListening(self.make_intent())
-            self.notify_app("STATUS|LISTENING — say JARVIS")
+            self.notify_app("STATUS|LISTENING — say VYRo")
         except Exception as e:
             self.recognizer = None
             self.notify_app("ERROR|Recognizer start: " + str(e))
@@ -357,7 +357,7 @@ class VoiceService:
                 candidates = [str(arr.get(i)) for i in range(min(arr.size(), 5))]
                 self.notify_app("RESULTS|" + " || ".join(candidates))
                 # Try every candidate. This matters when Google's top result
-                # is a near-spelling while another candidate contains JARVIS.
+                # is a near-spelling while another candidate contains VYRo.
                 for text in candidates:
                     if self.contains_wake(text):
                         self.process_text(text, False)
@@ -371,7 +371,7 @@ class VoiceService:
 
     def on_error(self, error):
         if error == 7:  # ERROR_NO_MATCH
-            self.notify_app("STATUS|LISTENING — say JARVIS")
+            self.notify_app("STATUS|LISTENING — say VYRo")
             self.schedule_restart(350)
             return
 

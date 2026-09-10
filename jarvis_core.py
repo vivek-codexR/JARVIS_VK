@@ -163,7 +163,7 @@ class JarvisCore:
 
         return (
             "I don't understand that command yet. "
-            "Say 'JARVIS help' for commands."
+            "Say 'VYRo help' for commands."
         )
 
     @staticmethod
@@ -276,7 +276,7 @@ class JarvisCore:
     @staticmethod
     def help_text():
         return (
-            "JARVIS COMMAND CENTER\n\n"
+            "VYRo COMMAND CENTER\n\n"
             "TIME: what time is it / समय क्या है\n"
             "DATE: today's date / आज की तारीख क्या है\n"
             "RULES: show my rules / मेरे रूल्स दिखाओ\n"

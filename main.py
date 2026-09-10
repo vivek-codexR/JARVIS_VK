@@ -72,26 +72,6 @@ class TTSInitListener(__import__('jnius').PythonJavaClass):
         self.owner.tts_initialized(status)
 
 
-class TTSProgressListener(__import__('jnius').PythonJavaClass):
-    __javainterfaces__ = ["android/speech/tts/UtteranceProgressListener"]
-
-    def __init__(self, owner):
-        super().__init__()
-        self.owner = owner
-
-    @__import__('jnius').java_method("(Ljava/lang/String;)V")
-    def onStart(self, utteranceId):
-        self.owner.tts_event("START")
-
-    @__import__('jnius').java_method("(Ljava/lang/String;)V")
-    def onDone(self, utteranceId):
-        self.owner.tts_event("DONE")
-
-    @__import__('jnius').java_method("(Ljava/lang/String;)V")
-    def onError(self, utteranceId):
-        self.owner.tts_event("ERROR")
-
-
 class VoiceEngine:
     def __init__(self, app):
         self.app = app
@@ -112,7 +92,6 @@ class VoiceEngine:
         self.listener = RecognitionListener(self)
         self.tts = None
         self.tts_init_listener = TTSInitListener(self)
-        self.tts_progress_listener = TTSProgressListener(self)
         self.tts_ready = False
         self.language_ok = False
         self.awake = False
@@ -144,10 +123,6 @@ class VoiceEngine:
         try:
             if self.tts is None:
                 self.tts = self.TTS(self.app.activity, self.tts_init_listener)
-                try:
-                    self.tts.setOnUtteranceProgressListener(self.tts_progress_listener)
-                except Exception as e:
-                    self.app.show_voice("TTS listener warning: " + str(e))
         except Exception as e:
             self.app.show_voice("TTS creation error: " + str(e))
 
@@ -331,7 +306,7 @@ class VoiceEngine:
 
 class VyroApp(App):
     def build(self):
-        self.title = "VYRo V1.6"
+        self.title = "VYRo V1.6.1"
         self.activity = __import__('jnius').autoclass("org.kivy.android.PythonActivity").mActivity
         self.app_files_dir = str(self.activity.getFilesDir().getAbsolutePath())
         self.data_file = os.path.join(self.app_files_dir, "jarvis_data.json")
@@ -339,7 +314,7 @@ class VyroApp(App):
         self.voice = None
 
         root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
-        root.add_widget(Label(text="VYRo V1.6\nYour Personal AI Assistant", font_size=dp(24), size_hint_y=None, height=dp(90)))
+        root.add_widget(Label(text="VYRo V1.6.1\nYour Personal AI Assistant", font_size=dp(24), size_hint_y=None, height=dp(90)))
         self.status = Label(text="STARTING VOICE...", size_hint_y=None, height=dp(35))
         root.add_widget(self.status)
         self.output = Label(text="Welcome Boss.\n\nStarting VYRo voice engine...", halign="left", valign="top", size_hint_y=None)
