@@ -15,7 +15,7 @@ from jarvis_core import JarvisCore
 
 class JarvisApp(App):
     def build(self):
-        self.title = "JARVIS V1.5"
+        self.title = "JARVIS V1.5.2"
         self.app_files_dir = self.get_android_files_dir()
         self.data_file = os.path.join(self.app_files_dir, "jarvis_data.json")
         self.event_file = os.path.join(self.app_files_dir, "jarvis_voice_events.txt")
@@ -24,7 +24,7 @@ class JarvisApp(App):
         root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
 
         self.header = Label(
-            text="JARVIS V1.5\nYour Personal Assistant",
+            text="JARVIS V1.5.2\nYour Personal Assistant",
             font_size=dp(24), size_hint_y=None, height=dp(90)
         )
         root.add_widget(self.header)
