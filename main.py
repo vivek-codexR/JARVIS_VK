@@ -73,6 +73,14 @@ class TTSInitListener(__import__('jnius').PythonJavaClass):
 
 
 class VoiceEngine:
+    """Voice engine with one hard rule: every SpeechRecognizer operation is
+    posted to Android's main application looper.
+
+    RecognitionListener callbacks can arrive from a binder/service thread, so
+    we NEVER call SpeechRecognizer.cancel/destroy/startListening directly from
+    those callbacks.
+    """
+
     def __init__(self, app):
         self.app = app
         self.J = __import__('jnius')
@@ -86,7 +94,10 @@ class VoiceEngine:
         self.AudioAttributesBuilder = autoclass("android.media.AudioAttributes$Builder")
         self.Handler = autoclass("android.os.Handler")
         self.Looper = autoclass("android.os.Looper")
-        self.handler = self.Handler(self.Looper.getMainLooper())
+
+        # Android SpeechRecognizer requires its API methods to run on the
+        # application's main thread. This handler is our single gatekeeper.
+        self.main_handler = self.Handler(self.Looper.getMainLooper())
 
         self.recognizer = None
         self.listener = RecognitionListener(self)
@@ -97,76 +108,137 @@ class VoiceEngine:
         self.awake = False
         self.last_wake = 0.0
         self.starting = False
+        self.destroyed = False
+
+    class MainRunnable(__import__('jnius').PythonJavaClass):
+        __javainterfaces__ = ["java/lang/Runnable"]
+
+        def __init__(self, fn):
+            super().__init__()
+            self.fn = fn
+
+        @__import__('jnius').java_method("()V")
+        def run(self):
+            try:
+                self.fn()
+            except Exception as e:
+                # Do not let a Java-main-thread callback kill the recognizer.
+                try:
+                    self.fn_error(e)
+                except Exception:
+                    pass
+
+    def post_main(self, fn, delay_ms=0):
+        runnable = self.MainRunnable(fn)
+        # Keep a Python reference alive until Java has executed the Runnable.
+        if not hasattr(self, "_runnables"):
+            self._runnables = []
+        self._runnables.append(runnable)
+
+        original_run = runnable.run
+        def cleanup_run():
+            try:
+                fn()
+            finally:
+                try:
+                    self._runnables.remove(runnable)
+                except Exception:
+                    pass
+        # Replace callback target used by run().
+        runnable.fn = cleanup_run
+        try:
+            if delay_ms:
+                self.main_handler.postDelayed(runnable, int(delay_ms))
+            else:
+                self.main_handler.post(runnable)
+        except Exception:
+            try:
+                self._runnables.remove(runnable)
+            except Exception:
+                pass
+
+    def ui(self, text):
+        # Kivy UI updates belong on Kivy's event loop, not a recognizer binder
+        # callback thread.
+        try:
+            Clock.schedule_once(lambda *_: self.app.show_voice(str(text)), 0)
+        except Exception:
+            pass
 
     def start(self):
         try:
             if not self.SpeechRecognizer.isRecognitionAvailable(self.app.activity):
-                self.app.show_voice("Speech recognition is NOT available on this phone.")
+                self.ui("Speech recognition is NOT available on this phone.")
                 return
-
-            self.app.show_voice("Voice engine starting...")
-            self.app.activity.runOnUiThread(self.JRunnable(self.init_tts))
-            self.app.activity.runOnUiThread(self.JRunnable(self.start_recognition))
+            self.ui("Voice engine starting...")
+            self.post_main(self.init_tts, 100)
+            self.post_main(self.start_recognition, 700)
         except Exception as e:
-            self.app.show_voice("Voice start error: " + str(e))
+            self.ui("Voice start error: " + str(e))
 
-    class JRunnable(__import__('jnius').PythonJavaClass):
-        __javainterfaces__ = ["java/lang/Runnable"]
-        def __init__(self, fn):
-            super().__init__()
-            self.fn = fn
-        @__import__('jnius').java_method("()V")
-        def run(self):
-            self.fn()
-
+    # ---------------- TTS ----------------
     def init_tts(self):
         try:
             if self.tts is None:
                 self.tts = self.TTS(self.app.activity, self.tts_init_listener)
         except Exception as e:
-            self.app.show_voice("TTS creation error: " + str(e))
+            self.ui("TTS creation error: " + str(e))
 
     def tts_initialized(self, status):
+        # TTS init callback may not be the Kivy thread. Keep Android calls
+        # serialized on the main looper too.
+        self.post_main(lambda: self._tts_initialized_main(status), 0)
+
+    def _tts_initialized_main(self, status):
         if status != self.TTS.SUCCESS:
-            self.app.show_voice("TTS initialization failed: " + str(status))
+            self.ui("TTS initialization failed: " + str(status))
             return
         try:
             result = self.tts.setLanguage(self.Locale("en", "IN"))
             if result in (self.TTS.LANG_MISSING_DATA, self.TTS.LANG_NOT_SUPPORTED):
                 result = self.tts.setLanguage(self.Locale.US)
-            self.language_ok = result not in (self.TTS.LANG_MISSING_DATA, self.TTS.LANG_NOT_SUPPORTED)
+            self.language_ok = result not in (
+                self.TTS.LANG_MISSING_DATA,
+                self.TTS.LANG_NOT_SUPPORTED,
+            )
             try:
-                attrs = self.AudioAttributesBuilder().setUsage(1).setContentType(1).build()
+                attrs = (self.AudioAttributesBuilder()
+                         .setUsage(1)
+                         .setContentType(1)
+                         .build())
                 self.tts.setAudioAttributes(attrs)
             except Exception:
                 pass
             self.tts_ready = self.language_ok
-            self.app.show_voice("TTS READY • language=" + str(result))
+            self.ui("TTS READY • language=" + str(result))
             if self.tts_ready:
-                self.speak("VYRo voice system online.")
+                self.post_main(lambda: self.speak("VYRo voice system online."), 250)
         except Exception as e:
-            self.app.show_voice("TTS setup error: " + str(e))
-
-    def tts_event(self, event):
-        self.app.show_voice("TTS PLAYBACK • " + event)
+            self.ui("TTS setup error: " + str(e))
 
     def speak(self, text):
+        # speak() itself is always posted to Android main looper.
+        self.post_main(lambda: self._speak_main(str(text)), 0)
+
+    def _speak_main(self, text):
         if not self.tts_ready or self.tts is None:
-            self.app.show_voice("TTS not ready")
+            self.ui("TTS not ready")
             return
         try:
             uid = "vyro_" + str(int(time.time() * 1000))
             result = self.tts.speak(str(text), self.TTS.QUEUE_FLUSH, None, uid)
             if result == self.TTS.SUCCESS:
-                self.app.show_voice("TTS ACCEPTED • speaking...")
+                self.ui("TTS ACCEPTED • speaking...")
             else:
-                self.app.show_voice("TTS REJECTED • code=" + str(result))
+                self.ui("TTS REJECTED • code=" + str(result))
         except Exception as e:
-            self.app.show_voice("TTS speak error: " + str(e))
+            self.ui("TTS speak error: " + str(e))
 
+    # ---------------- Speech recognition ----------------
     def make_intent(self):
         intent = self.Intent(self.RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-        intent.putExtra(self.RecognizerIntent.EXTRA_LANGUAGE_MODEL, self.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        intent.putExtra(self.RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                        self.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
         intent.putExtra(self.RecognizerIntent.EXTRA_PARTIAL_RESULTS, True)
         intent.putExtra(self.RecognizerIntent.EXTRA_MAX_RESULTS, 5)
         intent.putExtra(self.RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
@@ -176,32 +248,49 @@ class VoiceEngine:
             allowed.add("hi-IN")
             intent.putExtra(self.RecognizerIntent.EXTRA_ENABLE_LANGUAGE_DETECTION, True)
             intent.putExtra(self.RecognizerIntent.EXTRA_LANGUAGE_DETECTION_ALLOWED_LANGUAGES, allowed)
-            intent.putExtra(self.RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH, self.RecognizerIntent.LANGUAGE_SWITCH_BALANCED)
+            intent.putExtra(self.RecognizerIntent.EXTRA_ENABLE_LANGUAGE_SWITCH,
+                            self.RecognizerIntent.LANGUAGE_SWITCH_BALANCED)
             intent.putExtra(self.RecognizerIntent.EXTRA_LANGUAGE_SWITCH_ALLOWED_LANGUAGES, allowed)
         except Exception:
+            # Older recognition providers may not support API 34 language switch extras.
             pass
         return intent
 
     def start_recognition(self):
-        if self.starting:
+        # THIS METHOD MUST ONLY BE ENTERED VIA post_main().
+        if self.destroyed or self.starting:
             return
         self.starting = True
         try:
             if self.recognizer is not None:
                 try:
                     self.recognizer.cancel()
+                except Exception:
+                    pass
+                try:
                     self.recognizer.destroy()
                 except Exception:
                     pass
+                self.recognizer = None
+
             self.recognizer = self.SpeechRecognizer.createSpeechRecognizer(self.app.activity)
             self.recognizer.setRecognitionListener(self.listener)
             self.recognizer.startListening(self.make_intent())
-            self.app.show_voice("LISTENING • say VYRo")
+            self.ui("LISTENING • say VYRo")
         except Exception as e:
-            self.app.show_voice("Recognizer error: " + str(e))
-            Clock.schedule_once(lambda *_: self.start_recognition(), 2)
+            self.ui("Recognizer error: " + str(e))
+            self.post_main(self.start_recognition, 1500)
         finally:
             self.starting = False
+
+    def cancel_recognition(self):
+        def work():
+            try:
+                if self.recognizer is not None:
+                    self.recognizer.cancel()
+            except Exception:
+                pass
+        self.post_main(work, 0)
 
     @staticmethod
     def normalize(text):
@@ -237,40 +326,44 @@ class VoiceEngine:
             return []
         return [str(arr.get(i)) for i in range(min(arr.size(), 5))]
 
+    # Listener callbacks can arrive off the main thread. We only read the
+    # Bundle here and post any recognizer/UI work back to the proper loops.
     def voice_partial(self, results):
         try:
             items = self.extract(results)
             if items:
                 text = items[0]
-                self.app.show_voice("Hearing: " + text)
+                self.ui("Hearing: " + text)
                 if self.has_wake(text):
-                    self.handle_wake(text)
-        except Exception:
-            pass
+                    self.post_main(lambda t=text: self.handle_wake(t), 0)
+        except Exception as e:
+            self.ui("Partial result error: " + str(e))
 
     def voice_results(self, results):
         try:
             items = self.extract(results)
             if not items:
-                Clock.schedule_once(lambda *_: self.start_recognition(), .4)
+                self.post_main(self.start_recognition, 400)
                 return
             for text in items:
                 if self.has_wake(text):
-                    self.handle_wake(text)
+                    self.post_main(lambda t=text: self.handle_wake(t), 0)
                     return
-            self.app.show_voice("Heard: " + items[0])
+            self.ui("Heard: " + items[0])
             if self.awake:
-                self.handle_command(items[0])
+                self.post_main(lambda t=items[0]: self.handle_command(t), 0)
             else:
-                Clock.schedule_once(lambda *_: self.start_recognition(), .4)
+                self.post_main(self.start_recognition, 400)
         except Exception as e:
-            self.app.show_voice("Result error: " + str(e))
-            Clock.schedule_once(lambda *_: self.start_recognition(), 1)
+            self.ui("Result error: " + str(e))
+            self.post_main(self.start_recognition, 1000)
 
     def voice_error(self, error):
-        names = {1:"network",2:"network timeout",3:"audio",4:"server",5:"client",6:"speech timeout",7:"no match",8:"busy",9:"permission",10:"language unavailable",11:"language unsupported"}
-        self.app.show_voice("Recognizer: " + names.get(error, "error") + " (" + str(error) + ")")
-        Clock.schedule_once(lambda *_: self.start_recognition(), .5 if error == 7 else 1.5)
+        names = {1:"network",2:"network timeout",3:"audio",4:"server",5:"client",
+                 6:"speech timeout",7:"no match",8:"busy",9:"permission",
+                 10:"language unavailable",11:"language unsupported"}
+        self.ui("Recognizer: " + names.get(error, "error") + " (" + str(error) + ")")
+        self.post_main(self.start_recognition, 500 if error == 7 else 1500)
 
     def handle_wake(self, original):
         now = time.time()
@@ -279,16 +372,13 @@ class VoiceEngine:
         self.last_wake = now
         self.awake = True
         remainder = self.remove_wake(original)
-        try:
-            self.recognizer.cancel()
-        except Exception:
-            pass
-        self.app.show_voice("✅ VYRo AWAKE\n\n" + original)
+        self.cancel_recognition()
+        self.ui("✅ VYRo AWAKE\n\n" + original)
         self.speak("Yes Boss. How can I help you?")
         if remainder:
-            Clock.schedule_once(lambda *_: self.handle_command(remainder), 1.7)
+            self.post_main(lambda r=remainder: self.handle_command(r), 1800)
         else:
-            Clock.schedule_once(lambda *_: self.start_recognition(), 1.7)
+            self.post_main(self.start_recognition, 1800)
 
     def handle_command(self, command):
         if not self.awake:
@@ -296,17 +386,36 @@ class VoiceEngine:
         self.awake = False
         try:
             response = self.app.core.handle(command)
-            self.app.show_voice("Command: " + command + "\n\n" + response)
+            self.ui("Command: " + command + "\n\n" + response)
             self.speak(re.sub(r"\s+", " ", str(response)))
         except Exception as e:
-            self.app.show_voice("Command error: " + str(e))
+            self.ui("Command error: " + str(e))
             self.speak("Sorry Boss, I could not process that command.")
-        Clock.schedule_once(lambda *_: self.start_recognition(), 1.2)
+        self.post_main(self.start_recognition, 1300)
+
+    def shutdown(self):
+        self.destroyed = True
+        def work():
+            try:
+                if self.recognizer is not None:
+                    self.recognizer.cancel()
+                    self.recognizer.destroy()
+                    self.recognizer = None
+            except Exception:
+                pass
+            try:
+                if self.tts is not None:
+                    self.tts.stop()
+                    self.tts.shutdown()
+                    self.tts = None
+            except Exception:
+                pass
+        self.post_main(work, 0)
 
 
 class VyroApp(App):
     def build(self):
-        self.title = "VYRo V1.6.1"
+        self.title = "VYRo V1.6.2"
         self.activity = __import__('jnius').autoclass("org.kivy.android.PythonActivity").mActivity
         self.app_files_dir = str(self.activity.getFilesDir().getAbsolutePath())
         self.data_file = os.path.join(self.app_files_dir, "jarvis_data.json")
@@ -314,7 +423,7 @@ class VyroApp(App):
         self.voice = None
 
         root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
-        root.add_widget(Label(text="VYRo V1.6.1\nYour Personal AI Assistant", font_size=dp(24), size_hint_y=None, height=dp(90)))
+        root.add_widget(Label(text="VYRo V1.6.2\nYour Personal AI Assistant", font_size=dp(24), size_hint_y=None, height=dp(90)))
         self.status = Label(text="STARTING VOICE...", size_hint_y=None, height=dp(35))
         root.add_widget(self.status)
         self.output = Label(text="Welcome Boss.\n\nStarting VYRo voice engine...", halign="left", valign="top", size_hint_y=None)
@@ -359,13 +468,8 @@ class VyroApp(App):
 
     def on_stop(self):
         try:
-            if self.voice and self.voice.recognizer:
-                self.voice.recognizer.cancel(); self.voice.recognizer.destroy()
-        except Exception:
-            pass
-        try:
-            if self.voice and self.voice.tts:
-                self.voice.tts.stop(); self.voice.tts.shutdown()
+            if self.voice:
+                self.voice.shutdown()
         except Exception:
             pass
         return super().on_stop()
