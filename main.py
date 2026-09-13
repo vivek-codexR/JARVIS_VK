@@ -225,10 +225,12 @@ class VoiceEngine:
             self.ui("TTS not ready")
             return
         try:
-            uid = "vyro_" + str(int(time.time() * 1000))
-            result = self.tts.speak(str(text), self.TTS.QUEUE_FLUSH, None, uid)
+            # Use the stable 3-argument TextToSpeech overload here.
+            # The 4-argument utterance-ID overload was producing a PyJNIus
+            # argument/overload exception on the target Android build.
+            result = self.tts.speak(str(text), self.TTS.QUEUE_FLUSH, None)
             if result == self.TTS.SUCCESS:
-                self.ui("TTS ACCEPTED • speaking...")
+                self.ui("TTS ACCEPTED • audio requested")
             else:
                 self.ui("TTS REJECTED • code=" + str(result))
         except Exception as e:
@@ -415,7 +417,7 @@ class VoiceEngine:
 
 class VyroApp(App):
     def build(self):
-        self.title = "VYRo V1.6.2"
+        self.title = "VYRo V1.6.3"
         self.activity = __import__('jnius').autoclass("org.kivy.android.PythonActivity").mActivity
         self.app_files_dir = str(self.activity.getFilesDir().getAbsolutePath())
         self.data_file = os.path.join(self.app_files_dir, "jarvis_data.json")
@@ -423,7 +425,7 @@ class VyroApp(App):
         self.voice = None
 
         root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
-        root.add_widget(Label(text="VYRo V1.6.2\nYour Personal AI Assistant", font_size=dp(24), size_hint_y=None, height=dp(90)))
+        root.add_widget(Label(text="VYRo V1.6.3\nYour Personal AI Assistant", font_size=dp(24), size_hint_y=None, height=dp(90)))
         self.status = Label(text="STARTING VOICE...", size_hint_y=None, height=dp(35))
         root.add_widget(self.status)
         self.output = Label(text="Welcome Boss.\n\nStarting VYRo voice engine...", halign="left", valign="top", size_hint_y=None)
