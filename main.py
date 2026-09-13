@@ -350,15 +350,21 @@ class VoiceEngine:
             if not items:
                 self.post_main(self.start_recognition, 400)
                 return
+
+            # When VYRo is awake, treat the next recognized phrase as the
+            # user's command. Do NOT require the wake word again.
+            if self.awake:
+                self.ui("Heard: " + items[0])
+                self.post_main(lambda t=items[0]: self.handle_command(t), 0)
+                return
+
             for text in items:
                 if self.has_wake(text):
                     self.post_main(lambda t=text: self.handle_wake(t), 0)
                     return
+
             self.ui("Heard: " + items[0])
-            if self.awake:
-                self.post_main(lambda t=items[0]: self.handle_command(t), 0)
-            else:
-                self.post_main(self.start_recognition, 400)
+            self.post_main(self.start_recognition, 400)
         except Exception as e:
             self.ui("Result error: " + str(e))
             self.post_main(self.start_recognition, 1000)
@@ -381,9 +387,19 @@ class VoiceEngine:
         self.ui("✅ VYRo AWAKE\n\n" + original)
         self.speak("Yes Boss. How can I help you?")
         if remainder:
+            # "VYRo help" can be spoken in one sentence. Otherwise the
+            # recognizer is restarted and waits for the next command.
             self.post_main(lambda r=remainder: self.handle_command(r), 1900)
         else:
             self.post_main(self.start_recognition, 1900)
+
+    def is_shutdown_command(self, command):
+        text = re.sub(r"\s+", " ", command.strip().lower())
+        return text in {
+            "exit", "quit", "close", "shutdown", "shut down",
+            "stop vyro", "exit vyro", "quit vyro", "बंद करो",
+            "बंद हो जाओ", "बंद कर दो", "वायरो बंद करो"
+        }
 
     def handle_command(self, command):
         if not self.awake:
@@ -392,21 +408,41 @@ class VoiceEngine:
         if now - self.last_command_at < self.command_cooldown:
             return
         self.last_command_at = now
-        self.awake = False
+
+        command = re.sub(r"\s+", " ", str(command).strip())
+        if not command:
+            self.post_main(self.start_recognition, 300)
+            return
+
+        if self.is_shutdown_command(command):
+            self.awake = False
+            self.ui("Command: " + command + "\n\nVYRo shutting down...")
+            self.speak("Okay Boss. Shutting down.")
+            self.post_main(self.shutdown, 1400)
+            return
+
         try:
             response = self.app.core.handle(command)
-            self.ui("Command: " + command + "\n\n" + response)
-            self.speak(re.sub(r"\s+", " ", str(response)))
+            self.ui("Command: " + command + "\n\n" + str(response))
+            # Speak ONLY the current command response. UI text/cards are never
+            # sent to TTS automatically.
+            spoken = re.sub(r"\s+", " ", str(response)).strip()
+            follow_up = "Any other help chahiye Sir aapko?"
+            self.speak((spoken + " " + follow_up).strip())
+            self.awake = True
         except Exception as e:
             self.ui("Command error: " + str(e))
-            self.speak("Sorry Boss, I could not process that command.")
-        self.post_main(self.start_recognition, 1300)
+            self.speak("Sorry Boss, I could not process that command. Any other help chahiye Sir aapko?")
+            self.awake = True
+
+        # Stay in conversation mode and listen for the next command.
+        self.post_main(self.start_recognition, 1600)
 
     def restart_voice(self):
         if self.destroyed:
             return
         self.awake = False
-        self.ui("RESTARTING VYRo V1.7...")
+        self.ui("RESTARTING VYRo V1.7.1...")
         self.cancel_recognition()
         self.post_main(self.start_recognition, 500)
 
@@ -432,7 +468,7 @@ class VoiceEngine:
 
 class VyroApp(App):
     def build(self):
-        self.title = "VYRo V1.7"
+        self.title = "VYRo V1.7.1"
         self.activity = __import__('jnius').autoclass("org.kivy.android.PythonActivity").mActivity
         self.app_files_dir = str(self.activity.getFilesDir().getAbsolutePath())
         self.data_file = os.path.join(self.app_files_dir, "jarvis_data.json")
@@ -440,10 +476,10 @@ class VyroApp(App):
         self.voice = None
 
         root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
-        root.add_widget(Label(text="VYRo V1.7\nYour Personal AI Assistant", font_size=dp(24), size_hint_y=None, height=dp(90)))
-        self.status = Label(text="STARTING VYRo V1.7...", size_hint_y=None, height=dp(35))
+        root.add_widget(Label(text="VYRo V1.7.1\nYour Personal AI Assistant", font_size=dp(24), size_hint_y=None, height=dp(90)))
+        self.status = Label(text="STARTING VYRo V1.7.1...", size_hint_y=None, height=dp(35))
         root.add_widget(self.status)
-        self.output = Label(text="Welcome Boss.\n\nVYRo V1.7 voice engine starting...", halign="left", valign="top", size_hint_y=None)
+        self.output = Label(text="Welcome Boss.\n\nVYRo V1.7.1 voice engine starting...", halign="left", valign="top", size_hint_y=None)
         self.output.bind(texture_size=lambda *_: setattr(self.output, "height", self.output.texture_size[1] + dp(20)))
         scroll = ScrollView(); scroll.add_widget(self.output); root.add_widget(scroll)
 
@@ -474,7 +510,7 @@ class VyroApp(App):
             after()
 
     def show_voice(self, text):
-        self.status.text = "ONLINE • VYRo VOICE ACTIVE"
+        self.status.text = "ONLINE • VYRo CONVERSATION ACTIVE"
         self.output.text = str(text)
 
     def run_command(self):

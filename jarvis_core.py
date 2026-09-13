@@ -61,7 +61,8 @@ class JarvisCore:
 
         if cmd in {"help", "commands", "what can you do", "क्या कर सकते हो",
                    "क्या कर सकते हो jarvis"}:
-            return self.help_text()
+            return ("I can show your timetable, rules, tasks, and daily summary. "
+                    "Just tell me what you need.")
 
         if cmd in {"time", "what time is it", "what is the time",
                    "current time", "tell me the time", "show time",

@@ -1,6 +1,6 @@
-# VYRo V1.7
+# VYRo V1.7.1
 
-V1.7 is built from the supplied V1.6.3 source.
+V1.7.1 is built from the supplied V1.6.3 source.
 
 ## Main upgrades
 - Preserves the working 3-argument Android TTS overload.
@@ -13,4 +13,7 @@ V1.7 is built from the supplied V1.6.3 source.
 - Removes the broken UtteranceProgressListener implementation from the optional service.
 
 ## Important
-The app currently uses Android SpeechRecognizer while the app is active. Background/always-on wake-word support is intentionally not enabled in V1.7.
+The app currently uses Android SpeechRecognizer while the app is active. Background/always-on wake-word support is intentionally not enabled in V1.7.1.
+
+
+V1.7.1 conversation flow: say VYRo -> wake response -> command -> command response + follow-up question -> next command. Exit/shutdown stops the voice engine.
