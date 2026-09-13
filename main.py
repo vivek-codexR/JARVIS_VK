@@ -109,6 +109,8 @@ class VoiceEngine:
         self.last_wake = 0.0
         self.starting = False
         self.destroyed = False
+        self.last_command_at = 0.0
+        self.command_cooldown = 0.8
 
     class MainRunnable(__import__('jnius').PythonJavaClass):
         __javainterfaces__ = ["java/lang/Runnable"]
@@ -135,10 +137,11 @@ class VoiceEngine:
             self._runnables = []
         self._runnables.append(runnable)
 
-        original_run = runnable.run
         def cleanup_run():
             try:
                 fn()
+            except Exception as e:
+                self.ui("Main-thread error: " + str(e))
             finally:
                 try:
                     self._runnables.remove(runnable)
@@ -378,13 +381,17 @@ class VoiceEngine:
         self.ui("✅ VYRo AWAKE\n\n" + original)
         self.speak("Yes Boss. How can I help you?")
         if remainder:
-            self.post_main(lambda r=remainder: self.handle_command(r), 1800)
+            self.post_main(lambda r=remainder: self.handle_command(r), 1900)
         else:
-            self.post_main(self.start_recognition, 1800)
+            self.post_main(self.start_recognition, 1900)
 
     def handle_command(self, command):
         if not self.awake:
             return
+        now = time.time()
+        if now - self.last_command_at < self.command_cooldown:
+            return
+        self.last_command_at = now
         self.awake = False
         try:
             response = self.app.core.handle(command)
@@ -394,6 +401,14 @@ class VoiceEngine:
             self.ui("Command error: " + str(e))
             self.speak("Sorry Boss, I could not process that command.")
         self.post_main(self.start_recognition, 1300)
+
+    def restart_voice(self):
+        if self.destroyed:
+            return
+        self.awake = False
+        self.ui("RESTARTING VYRo V1.7...")
+        self.cancel_recognition()
+        self.post_main(self.start_recognition, 500)
 
     def shutdown(self):
         self.destroyed = True
@@ -417,7 +432,7 @@ class VoiceEngine:
 
 class VyroApp(App):
     def build(self):
-        self.title = "VYRo V1.6.3"
+        self.title = "VYRo V1.7"
         self.activity = __import__('jnius').autoclass("org.kivy.android.PythonActivity").mActivity
         self.app_files_dir = str(self.activity.getFilesDir().getAbsolutePath())
         self.data_file = os.path.join(self.app_files_dir, "jarvis_data.json")
@@ -425,10 +440,10 @@ class VyroApp(App):
         self.voice = None
 
         root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
-        root.add_widget(Label(text="VYRo V1.6.3\nYour Personal AI Assistant", font_size=dp(24), size_hint_y=None, height=dp(90)))
-        self.status = Label(text="STARTING VOICE...", size_hint_y=None, height=dp(35))
+        root.add_widget(Label(text="VYRo V1.7\nYour Personal AI Assistant", font_size=dp(24), size_hint_y=None, height=dp(90)))
+        self.status = Label(text="STARTING VYRo V1.7...", size_hint_y=None, height=dp(35))
         root.add_widget(self.status)
-        self.output = Label(text="Welcome Boss.\n\nStarting VYRo voice engine...", halign="left", valign="top", size_hint_y=None)
+        self.output = Label(text="Welcome Boss.\n\nVYRo V1.7 voice engine starting...", halign="left", valign="top", size_hint_y=None)
         self.output.bind(texture_size=lambda *_: setattr(self.output, "height", self.output.texture_size[1] + dp(20)))
         scroll = ScrollView(); scroll.add_widget(self.output); root.add_widget(scroll)
 
@@ -440,6 +455,7 @@ class VyroApp(App):
             b=Button(text=text); b.bind(on_press=lambda _, c=cmd: self.handle(c)); row.add_widget(b)
         root.add_widget(row)
         send=Button(text="RUN COMMAND", size_hint_y=None, height=dp(55)); send.bind(on_press=lambda *_: self.run_command()); root.add_widget(send)
+        restart=Button(text="RESTART VOICE", size_hint_y=None, height=dp(48)); restart.bind(on_press=lambda *_: self.voice.restart_voice() if self.voice else None); root.add_widget(restart)
 
         self.request_voice_permission()
         return root
@@ -458,7 +474,7 @@ class VyroApp(App):
             after()
 
     def show_voice(self, text):
-        self.status.text = "ONLINE • VOICE ACTIVE"
+        self.status.text = "ONLINE • VYRo VOICE ACTIVE"
         self.output.text = str(text)
 
     def run_command(self):

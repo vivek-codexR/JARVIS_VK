@@ -1,13 +1,13 @@
 [app]
 
-title = VYRo V1.6.3
+title = VYRo V1.7
 package.name = jarvisassistant
 package.domain = org.jarvis
 
 source.dir = .
 source.include_exts = py,json,png,jpg,kv
 
-version = 1.6.3
+version = 1.7.0
 
 requirements = python3,kivy,pyjnius
 
@@ -22,7 +22,6 @@ android.archs = arm64-v8a,armeabi-v7a
 android.accept_sdk_license = True
 
 android.permissions = INTERNET,RECORD_AUDIO
-
 
 p4a.fork = kivy
 p4a.branch = develop

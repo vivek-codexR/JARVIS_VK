@@ -88,30 +88,6 @@ class TTSListener(PythonJavaClass):
             self.owner.notify_app("TTS_ERROR|Initialization failed: " + str(status))
 
 
-class UtteranceListener(PythonJavaClass):
-    __javainterfaces__ = ["android/speech/tts/UtteranceProgressListener"]
-
-    def __init__(self, owner):
-        super().__init__()
-        self.owner = owner
-
-    @java_method("(Ljava/lang/String;)V")
-    def onStart(self, utteranceId):
-        self.owner.notify_app("TTS_PLAYBACK|START id=" + str(utteranceId))
-
-    @java_method("(Ljava/lang/String;)V")
-    def onDone(self, utteranceId):
-        self.owner.notify_app("TTS_PLAYBACK|DONE id=" + str(utteranceId))
-
-    @java_method("(Ljava/lang/String;)V")
-    def onError(self, utteranceId):
-        self.owner.notify_app("TTS_ERROR|Playback error id=" + str(utteranceId))
-
-    @java_method("(Ljava/lang/String;I)V")
-    def onErrorWithCode(self, utteranceId, errorCode):
-        self.owner.notify_app("TTS_ERROR|Playback error code=" + str(errorCode) + " id=" + str(utteranceId))
-
-
 class VoiceService:
     def __init__(self):
         self.Intent = autoclass("android.content.Intent")
@@ -128,7 +104,6 @@ class VoiceService:
         self.handler = self.Handler(self.Looper.getMainLooper())
         self.listener = RecognitionListener(self)
         self.tts_listener = TTSListener(self)
-        self.tts_progress_listener = UtteranceListener(self)
         self.AudioAttributesBuilder = autoclass("android.media.AudioAttributes$Builder")
 
         self.recognizer = None
@@ -147,7 +122,7 @@ class VoiceService:
         self.event_file = os.path.join(self.files_dir, "jarvis_voice_events.txt")
 
         self.notify_app("STATUS|SERVICE STARTING")
-        self.notify_app("DEBUG|V1.5 diagnostic voice engine")
+        self.notify_app("DEBUG|V1.7 optional voice service")
 
         # TextToSpeech is created on Android's main looper. Creating it from
         # the service bootstrap thread can fail on some Android builds.
@@ -190,11 +165,6 @@ class VoiceService:
             self.notify_app("TTS|CREATING_ON_MAIN_THREAD")
             self.tts = self.TTS(self.context, self.tts_listener)
             self.notify_app("TTS|OBJECT_CREATED")
-            try:
-                self.tts.setOnUtteranceProgressListener(self.tts_progress_listener)
-                self.notify_app("TTS|PROGRESS_LISTENER_ATTACHED")
-            except Exception as e:
-                self.notify_app("TTS_ERROR|Progress listener attach: " + str(e))
         except Exception as e:
             self.notify_app("TTS_ERROR|Could not create TTS on main thread: " + str(e))
 
@@ -213,14 +183,12 @@ class VoiceService:
                 return False
 
             mode = self.TTS.QUEUE_ADD if queue else self.TTS.QUEUE_FLUSH
-            utterance_id = "jarvis_" + str(int(time.time() * 1000))
-            result = self.tts.speak(
-                str(text), mode, None, utterance_id
-            )
+            # Keep the stable 3-argument overload used by V1.6.3.
+            result = self.tts.speak(str(text), mode, None)
             if result == self.TTS.SUCCESS:
-                self.notify_app("TTS|SPEAK_ACCEPTED result=SUCCESS(0) id=" + utterance_id + " text=" + str(text)[:180])
+                self.notify_app("TTS|SPEAK_ACCEPTED result=SUCCESS(0) text=" + str(text)[:180])
                 return True
-            self.notify_app("TTS_ERROR|SPEAK_REJECTED result=" + str(result) + " id=" + utterance_id + " text=" + str(text)[:180])
+            self.notify_app("TTS_ERROR|SPEAK_REJECTED result=" + str(result) + " text=" + str(text)[:180])
             return False
         except Exception as e:
             self.notify_app("TTS_ERROR|speak(main): " + str(e))
