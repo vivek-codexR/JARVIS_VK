@@ -110,7 +110,8 @@ class VoiceEngine:
         self.starting = False
         self.destroyed = False
         self.last_command_at = 0.0
-        self.command_cooldown = 0.8
+        self.command_cooldown = 1.2
+        self.speaking = False
 
     class MainRunnable(__import__('jnius').PythonJavaClass):
         __javainterfaces__ = ["java/lang/Runnable"]
@@ -231,13 +232,25 @@ class VoiceEngine:
             # Use the stable 3-argument TextToSpeech overload here.
             # The 4-argument utterance-ID overload was producing a PyJNIus
             # argument/overload exception on the target Android build.
+            self.speaking = True
             result = self.tts.speak(str(text), self.TTS.QUEUE_FLUSH, None)
             if result == self.TTS.SUCCESS:
-                self.ui("TTS ACCEPTED • audio requested")
+                self.ui("TTS SPEAKING • voice output active")
+                duration_ms = max(1400, min(12000, int(len(str(text)) * 65 + 700)))
+                self.post_main(self._tts_finished, duration_ms)
             else:
                 self.ui("TTS REJECTED • code=" + str(result))
+                self._tts_finished()
         except Exception as e:
             self.ui("TTS speak error: " + str(e))
+            self._tts_finished()
+
+    def _tts_finished(self):
+        self.speaking = False
+        if self.destroyed:
+            return
+        if self.awake:
+            self.post_main(self.start_recognition, 150)
 
     # ---------------- Speech recognition ----------------
     def make_intent(self):
@@ -334,6 +347,8 @@ class VoiceEngine:
     # Listener callbacks can arrive off the main thread. We only read the
     # Bundle here and post any recognizer/UI work back to the proper loops.
     def voice_partial(self, results):
+        if self.speaking:
+            return
         try:
             items = self.extract(results)
             if items:
@@ -345,6 +360,8 @@ class VoiceEngine:
             self.ui("Partial result error: " + str(e))
 
     def voice_results(self, results):
+        if self.speaking:
+            return
         try:
             items = self.extract(results)
             if not items:
@@ -370,6 +387,8 @@ class VoiceEngine:
             self.post_main(self.start_recognition, 1000)
 
     def voice_error(self, error):
+        if self.speaking:
+            return
         names = {1:"network",2:"network timeout",3:"audio",4:"server",5:"client",
                  6:"speech timeout",7:"no match",8:"busy",9:"permission",
                  10:"language unavailable",11:"language unsupported"}
@@ -387,11 +406,7 @@ class VoiceEngine:
         self.ui("✅ VYRo AWAKE\n\n" + original)
         self.speak("Yes Boss. How can I help you?")
         if remainder:
-            # "VYRo help" can be spoken in one sentence. Otherwise the
-            # recognizer is restarted and waits for the next command.
-            self.post_main(lambda r=remainder: self.handle_command(r), 1900)
-        else:
-            self.post_main(self.start_recognition, 1900)
+            self.post_main(lambda r=remainder: self.handle_command(r), 1500)
 
     def is_shutdown_command(self, command):
         text = re.sub(r"\s+", " ", command.strip().lower())
@@ -435,14 +450,13 @@ class VoiceEngine:
             self.speak("Sorry Boss, I could not process that command. Any other help chahiye Sir aapko?")
             self.awake = True
 
-        # Stay in conversation mode and listen for the next command.
-        self.post_main(self.start_recognition, 1600)
+        # _tts_finished() restarts recognition after VYRo finishes speaking.
 
     def restart_voice(self):
         if self.destroyed:
             return
         self.awake = False
-        self.ui("RESTARTING VYRo V1.7.1...")
+        self.ui("RESTARTING VYRo V1.7.2...")
         self.cancel_recognition()
         self.post_main(self.start_recognition, 500)
 
@@ -468,7 +482,7 @@ class VoiceEngine:
 
 class VyroApp(App):
     def build(self):
-        self.title = "VYRo V1.7.1"
+        self.title = "VYRo V1.7.2"
         self.activity = __import__('jnius').autoclass("org.kivy.android.PythonActivity").mActivity
         self.app_files_dir = str(self.activity.getFilesDir().getAbsolutePath())
         self.data_file = os.path.join(self.app_files_dir, "jarvis_data.json")
@@ -476,10 +490,10 @@ class VyroApp(App):
         self.voice = None
 
         root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
-        root.add_widget(Label(text="VYRo V1.7.1\nYour Personal AI Assistant", font_size=dp(24), size_hint_y=None, height=dp(90)))
-        self.status = Label(text="STARTING VYRo V1.7.1...", size_hint_y=None, height=dp(35))
+        root.add_widget(Label(text="VYRo V1.7.2\nYour Personal AI Assistant", font_size=dp(24), size_hint_y=None, height=dp(90)))
+        self.status = Label(text="STARTING VYRo V1.7.2...", size_hint_y=None, height=dp(35))
         root.add_widget(self.status)
-        self.output = Label(text="Welcome Boss.\n\nVYRo V1.7.1 voice engine starting...", halign="left", valign="top", size_hint_y=None)
+        self.output = Label(text="Welcome Boss.\n\nVYRo V1.7.2 voice engine starting...", halign="left", valign="top", size_hint_y=None)
         self.output.bind(texture_size=lambda *_: setattr(self.output, "height", self.output.texture_size[1] + dp(20)))
         scroll = ScrollView(); scroll.add_widget(self.output); root.add_widget(scroll)
 
