@@ -1,13 +1,13 @@
 [app]
 
-title = VYRo V1.7.2
+title = VYRo V1.7.3
 package.name = jarvisassistant
 package.domain = org.jarvis
 
 source.dir = .
 source.include_exts = py,json,png,jpg,kv
 
-version = 1.7.2
+version = 1.7.3
 
 requirements = python3,kivy,pyjnius
 
