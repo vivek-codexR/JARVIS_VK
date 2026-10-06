@@ -1,19 +1,15 @@
-# VYRo V1.7.3
+# VYRo V1.8
 
-V1.7.3 is built from the supplied V1.6.3 source.
+VYRo personal Android voice assistant.
 
-## Main upgrades
-- Preserves the working 3-argument Android TTS overload.
-- Keeps SpeechRecognizer operations on Android's main looper.
-- Adds better main-thread exception reporting.
-- Adds duplicate-command cooldown.
-- Adds a RESTART VOICE button.
-- Keeps Hindi + English recognition settings.
-- Adds basic identity/status/thanks commands.
-- Removes the broken UtteranceProgressListener implementation from the optional service.
-
-## Important
-The app currently uses Android SpeechRecognizer while the app is active. Background/always-on wake-word support is intentionally not enabled in V1.7.3.
-
-
-V1.7.3 conversation flow: say VYRo -> wake response -> command -> command response + follow-up question -> next command. Exit/shutdown stops the voice engine.
+## V1.8 upgrades
+- Stable wake-word + conversation flow from V1.7.3
+- Time and date commands
+- Timetable, rules, tasks and summary commands
+- Voice follow-up for adding tasks/rules/timetable entries
+- Identity and basic conversation commands
+- Open Google, YouTube and Android Settings
+- Google search by voice
+- Exit / Shut down command
+- TTS does not read screen-only UI content
+- No background/always-on service enabled yet

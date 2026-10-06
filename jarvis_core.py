@@ -51,62 +51,81 @@ class JarvisCore:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
     def handle(self, raw):
-        cmd = re.sub(r"\s+", " ", raw.strip().lower()).strip()
+        cmd = re.sub(r"\s+", " ", str(raw).strip().lower()).strip()
         if not cmd:
             return "I am listening."
 
+        # Greetings / identity
         if cmd in {"hi", "hello", "hey", "hii", "hlo", "good morning",
                    "good afternoon", "good evening", "namaste", "नमस्ते"}:
             return "Hello Boss. I am ready to help."
 
-        if cmd in {"help", "commands", "what can you do", "क्या कर सकते हो",
-                   "क्या कर सकते हो jarvis"}:
-            return ("I can show your timetable, rules, tasks, and daily summary. "
-                    "Just tell me what you need.")
+        if cmd in {"who are you", "what are you", "what is your name",
+                   "your name", "who is vyro", "vyro who are you",
+                   "तुम कौन हो", "तुम्हारा नाम क्या है", "वायरो कौन हो"}:
+            return "I am VYRo, your personal AI assistant."
 
+        if cmd in {"how are you", "how are you doing", "कैसे हो",
+                   "वायरो कैसे हो", "तुम कैसे हो"}:
+            return "I am online and ready, Boss."
+
+        if cmd in {"thank you", "thanks", "thankyou", "धन्यवाद", "थैंक यू"}:
+            return "You're welcome, Boss."
+
+        if cmd in {"help", "commands", "what can you do", "what can you do for me",
+                   "क्या कर सकते हो", "क्या कर सकते हो jarvis", "क्या कर सकते हो वायरो"}:
+            return self.help_text()
+
+        # Time / date
         if cmd in {"time", "what time is it", "what is the time",
                    "current time", "tell me the time", "show time",
                    "समय क्या है", "टाइम क्या है", "अभी कितने बजे हैं",
-                   "अभी टाइम क्या है"}:
+                   "अभी टाइम क्या है", "टाइम बताओ", "समय बताओ"}:
             return "Current time: " + datetime.now().strftime("%I:%M %p")
 
         if cmd in {"date", "what is the date", "what date is it",
                    "today date", "today's date", "current date",
                    "tell me the date", "show date",
-                   "आज की तारीख", "आज की तारीख क्या है", "आज कौन सी तारीख है"}:
+                   "आज की तारीख", "आज की तारीख क्या है", "आज कौन सी तारीख है",
+                   "आज की डेट क्या है", "डेट बताओ", "तारीख बताओ"}:
             return "Today: " + datetime.now().strftime("%A, %d %B %Y")
 
+        # Stored information
         if cmd in {"rules", "rule", "show rules", "show my rules",
                    "my rules", "daily rules", "मेरे रूल्स दिखाओ",
-                   "मेरे नियम दिखाओ", "रूल्स दिखाओ"}:
+                   "मेरे नियम दिखाओ", "रूल्स दिखाओ", "मेरे नियम बताओ",
+                   "रूल्स बताओ"}:
             return self.show_rules()
 
         if cmd in {"timetable", "schedule", "show timetable",
                    "show my timetable", "my timetable", "daily schedule",
                    "मेरा टाइमटेबल दिखाओ", "टाइमटेबल दिखाओ",
-                   "आज का टाइमटेबल दिखाओ"}:
+                   "आज का टाइमटेबल दिखाओ", "मेरा टाइमटेबल बताओ",
+                   "टाइमटेबल बताओ", "शेड्यूल बताओ"}:
             return self.show_timetable()
 
         if cmd in {"tasks", "task", "show tasks", "show my tasks",
                    "my tasks", "pending tasks", "todo", "to do",
-                   "मेरे टास्क दिखाओ", "टास्क दिखाओ", "पेंडिंग टास्क दिखाओ"}:
+                   "मेरे टास्क दिखाओ", "टास्क दिखाओ", "पेंडिंग टास्क दिखाओ",
+                   "मेरे काम बताओ", "मेरे टास्क बताओ"}:
             return self.show_tasks()
 
         if cmd in {"summary", "daily summary", "my summary",
                    "today summary", "status", "मेरा समरी दिखाओ",
-                   "आज का समरी दिखाओ", "समरी दिखाओ"}:
+                   "आज का समरी दिखाओ", "समरी दिखाओ", "मेरा स्टेटस बताओ"}:
             return self.show_summary()
 
+        # Task creation
         task = self.extract_after_prefix(cmd, [
             "add task ", "add a task ", "create task ",
             "create a task ", "new task ", "remember task ",
             "task add ", "टास्क जोड़ो ", "टास्क जोड़ना है ",
-            "टास्क ऐड करो ", "टास्क ऐड कर दो "
+            "टास्क ऐड करो ", "टास्क ऐड कर दो ", "काम जोड़ो ",
+            "काम ऐड करो "
         ])
         if task:
             return self.add_task(task)
 
-        # Common Hinglish forms where speech recognition inserts extra words.
         m = re.match(r"(?:add|create|new)\s+(?:a\s+)?task\s*(?:to\s*)?(.+)$", cmd)
         if m:
             return self.add_task(m.group(1).strip())
@@ -129,12 +148,14 @@ class JarvisCore:
 
         if cmd in {"clear completed", "clear completed tasks",
                    "remove completed tasks", "completed tasks हटाओ",
-                   "completed task हटाओ"}:
+                   "completed task हटाओ", "completed हटाओ"}:
             return self.clear_completed_tasks()
 
+        # Rule creation/deletion
         rule = self.extract_after_prefix(cmd, [
             "add rule ", "add a rule ", "new rule ", "remember rule ",
-            "rule add ", "रूल जोड़ो ", "नियम जोड़ो ", "रूल ऐड करो "
+            "rule add ", "रूल जोड़ो ", "नियम जोड़ो ", "रूल ऐड करो ",
+            "नियम ऐड करो "
         ])
         if rule:
             return self.add_rule(rule)
@@ -143,29 +164,26 @@ class JarvisCore:
         if m:
             return self.delete_rule(int(m.group(1)))
 
-        m = re.match(r"(?:add|set|create)\s+(?:timetable|schedule)\s+"
-                     r"(\d{1,2}:\d{2})\s+(.+)$", cmd)
+        # Timetable creation. The voice layer can ask for the activity if only
+        # the time is supplied.
+        m = re.match(r"(?:add|set|create)\s+(?:timetable|schedule)\s+(\d{1,2}:\d{2})\s+(.+)$", cmd)
         if m:
             if self.valid_time(m.group(1)):
                 key = self.normalize_time(m.group(1))
                 self.data["timetable"][key] = m.group(2).strip()
                 self.save_data()
-                return self.show_timetable()
+                return f"Timetable updated for {key}: {m.group(2).strip()}"
             return "Invalid time. Use HH:MM, for example 18:30."
 
-        # Hindi/Hinglish timetable: "टाइमटेबल में 19:00 coding जोड़ो"
-        m = re.search(r"(?:timetable|टाइमटेबल).{0,15}"
-                      r"(\d{1,2}:\d{2}).{0,10}(.+)", cmd)
-        if m and any(x in cmd for x in ["add", "set", "जोड़", "ऐड"]):
+        m = re.search(r"(?:timetable|schedule|टाइमटेबल|शेड्यूल).{0,15}(\d{1,2}:\d{2}).{0,10}(.+)", cmd)
+        if m and any(x in cmd for x in ["add", "set", "जोड़", "ऐड", "create"]):
             if self.valid_time(m.group(1)):
-                self.data["timetable"][self.normalize_time(m.group(1))] = m.group(2).strip()
+                key = self.normalize_time(m.group(1))
+                self.data["timetable"][key] = m.group(2).strip()
                 self.save_data()
-                return self.show_timetable()
+                return f"Timetable updated for {key}: {m.group(2).strip()}"
 
-        return (
-            "I don't understand that command yet. "
-            "Say 'VYRo help' for commands."
-        )
+        return "I don't understand that command yet. Say VYRo help for available commands."
 
     @staticmethod
     def extract_after_prefix(command, prefixes):
@@ -278,14 +296,17 @@ class JarvisCore:
     def help_text():
         return (
             "VYRo COMMAND CENTER\n\n"
-            "TIME: what time is it / समय क्या है\n"
-            "DATE: today's date / आज की तारीख क्या है\n"
-            "RULES: show my rules / मेरे रूल्स दिखाओ\n"
-            "TIMETABLE: show my timetable / मेरा टाइमटेबल दिखाओ\n"
-            "TASKS: show my tasks / मेरे टास्क दिखाओ\n"
+            "TIME: time batao / what time is it\n"
+            "DATE: aaj ki date kya hai\n"
+            "RULES: mere rules batao\n"
+            "TIMETABLE: mera timetable batao\n"
+            "TASKS: mere tasks batao\n"
             "ADD TASK: add task finish Python project\n"
             "COMPLETE: complete task 1\n"
             "DELETE: delete task 1\n"
             "ADD RULE: add rule study 2 hours\n"
-            "SUMMARY: daily summary"
+            "SUMMARY: daily summary\n"
+            "IDENTITY: who are you / how are you\n"
+            "APP ACTIONS: open Google, open YouTube, open Settings, search <query>"
         )
+

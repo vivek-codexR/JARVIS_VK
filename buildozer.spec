@@ -1,6 +1,6 @@
 [app]
 
-title = VYRo V1.7.3
+title = VYRo V1.8
 package.name = jarvisassistant
 package.domain = org.jarvis
 

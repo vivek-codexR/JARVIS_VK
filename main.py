@@ -13,6 +13,9 @@ from kivy.uix.button import Button
 from kivy.uix.textinput import TextInput
 from kivy.uix.scrollview import ScrollView
 
+from android.runnable import run_on_ui_thread
+
+
 from jarvis_core import JarvisCore
 
 
@@ -114,6 +117,10 @@ class VoiceEngine:
         self.speaking = False
         self.initial_listen_pending = False
         self.startup_tts_pending = False
+        self.pending_followup = None
+        self.pending_timetable_time = None
+        self.pending_followup = None
+        self.pending_timetable_time = None
 
     class MainRunnable(__import__('jnius').PythonJavaClass):
         __javainterfaces__ = ["java/lang/Runnable"]
@@ -430,6 +437,84 @@ class VoiceEngine:
         if remainder:
             self.post_main(lambda r=remainder: self.handle_command(r), 1500)
 
+    def _open_url(self, url):
+        try:
+            intent = self.Intent(self.Intent.ACTION_VIEW)
+            intent.setData(self.J.autoclass("android.net.Uri").parse(url))
+            self.app.activity.startActivity(intent)
+            return True
+        except Exception as e:
+            self.ui("Open action error: " + str(e))
+            return False
+
+    def _open_settings(self):
+        try:
+            intent = self.Intent(self.J.autoclass("android.provider.Settings").ACTION_SETTINGS)
+            self.app.activity.startActivity(intent)
+            return True
+        except Exception as e:
+            self.ui("Settings action error: " + str(e))
+            return False
+
+    def handle_special_action(self, command):
+        """Handle simple phone/browser actions without extra Android permissions."""
+        c = re.sub(r"\s+", " ", str(command).strip().lower())
+        if c in {"open google", "google kholo", "google open karo", "google खोलो"}:
+            self._open_url("https://www.google.com")
+            return "Opening Google, Boss."
+        if c in {"open youtube", "youtube kholo", "youtube open karo", "youtube खोलो"}:
+            self._open_url("https://www.youtube.com")
+            return "Opening YouTube, Boss."
+        if c in {"open settings", "settings kholo", "settings open karo", "सेटिंग्स खोलो"}:
+            self._open_settings()
+            return "Opening Settings, Boss."
+        m = re.match(r"(?:search|google search|search for|सर्च)\s+(.+)$", c)
+        if m:
+            q = m.group(1).strip()
+            from urllib.parse import quote_plus
+            self._open_url("https://www.google.com/search?q=" + quote_plus(q))
+            return "Searching Google for " + q
+        return None
+
+    def _open_url(self, url):
+        try:
+            intent = self.Intent(self.Intent.ACTION_VIEW)
+            intent.setData(self.J.autoclass("android.net.Uri").parse(url))
+            self.app.activity.startActivity(intent)
+            return True
+        except Exception as e:
+            self.ui("Open action error: " + str(e))
+            return False
+
+    def _open_settings(self):
+        try:
+            intent = self.Intent(self.J.autoclass("android.provider.Settings").ACTION_SETTINGS)
+            self.app.activity.startActivity(intent)
+            return True
+        except Exception as e:
+            self.ui("Settings action error: " + str(e))
+            return False
+
+    def handle_special_action(self, command):
+        """Handle simple phone/browser actions without extra Android permissions."""
+        c = re.sub(r"\s+", " ", str(command).strip().lower())
+        if c in {"open google", "google kholo", "google open karo", "google खोलो"}:
+            self._open_url("https://www.google.com")
+            return "Opening Google, Boss."
+        if c in {"open youtube", "youtube kholo", "youtube open karo", "youtube खोलो"}:
+            self._open_url("https://www.youtube.com")
+            return "Opening YouTube, Boss."
+        if c in {"open settings", "settings kholo", "settings open karo", "सेटिंग्स खोलो"}:
+            self._open_settings()
+            return "Opening Settings, Boss."
+        m = re.match(r"(?:search|google search|search for|सर्च)\s+(.+)$", c)
+        if m:
+            q = m.group(1).strip()
+            from urllib.parse import quote_plus
+            self._open_url("https://www.google.com/search?q=" + quote_plus(q))
+            return "Searching Google for " + q
+        return None
+
     def is_shutdown_command(self, command):
         text = re.sub(r"\s+", " ", command.strip().lower())
         return text in {
@@ -452,33 +537,82 @@ class VoiceEngine:
             return
 
         if self.is_shutdown_command(command):
+            self.pending_followup = None
+            self.pending_timetable_time = None
             self.awake = False
             self.ui("Command: " + command + "\n\nVYRo shutting down...")
             self.speak("Okay Boss. Shutting down.")
-            self.post_main(self.shutdown, 1400)
+            self.post_main(self.shutdown, 1500)
             return
 
-        try:
-            response = self.app.core.handle(command)
-            self.ui("Command: " + command + "\n\n" + str(response))
-            # Speak ONLY the current command response. UI text/cards are never
-            # sent to TTS automatically.
-            spoken = re.sub(r"\s+", " ", str(response)).strip()
-            follow_up = "Any other help chahiye Sir aapko?"
-            self.speak((spoken + " " + follow_up).strip())
-            self.awake = True
-        except Exception as e:
-            self.ui("Command error: " + str(e))
-            self.speak("Sorry Boss, I could not process that command. Any other help chahiye Sir aapko?")
-            self.awake = True
+        # Follow-up mode: commands such as "add task" can ask one short
+        # question and use the next spoken phrase as the missing value.
+        low = command.lower().strip()
+        if self.pending_followup == "task":
+            self.pending_followup = None
+            response = self.app.core.add_task(command)
+        elif self.pending_followup == "rule":
+            self.pending_followup = None
+            response = self.app.core.add_rule(command)
+        elif self.pending_followup == "timetable":
+            self.pending_followup = None
+            t = self.pending_timetable_time
+            self.pending_timetable_time = None
+            if t:
+                key = self.app.core.normalize_time(t)
+                self.app.core.data["timetable"][key] = command
+                self.app.core.save_data()
+                response = f"Timetable updated for {key}: {command}"
+            else:
+                response = "I could not save that timetable entry."
+        else:
+            # Natural one-step prompts.
+            if low in {"add task", "add a task", "new task", "create task",
+                       "task add", "टास्क जोड़ो", "टास्क ऐड करो", "काम जोड़ो"}:
+                self.pending_followup = "task"
+                self.ui("Command: " + command + "\n\nWaiting for task name...")
+                self.speak("Sure Boss. What task should I add?")
+                self.awake = True
+                return
+            if low in {"add rule", "add a rule", "new rule", "rule add",
+                       "रूल जोड़ो", "रूल ऐड करो", "नियम जोड़ो"}:
+                self.pending_followup = "rule"
+                self.ui("Command: " + command + "\n\nWaiting for rule...")
+                self.speak("Sure Boss. What rule should I add?")
+                self.awake = True
+                return
+            tm = re.match(r"(?:add|set|create)\s+(?:timetable|schedule)\s+(\d{1,2}:\d{2})\s*$", low)
+            if tm and self.app.core.valid_time(tm.group(1)):
+                self.pending_followup = "timetable"
+                self.pending_timetable_time = tm.group(1)
+                self.ui("Command: " + command + "\n\nWaiting for timetable activity...")
+                self.speak("What should I schedule at " + self.app.core.normalize_time(tm.group(1)) + "?")
+                self.awake = True
+                return
 
-        # _tts_finished() restarts recognition after VYRo finishes speaking.
+            special = self.handle_special_action(command)
+            if special is not None:
+                response = special
+            else:
+                try:
+                    response = self.app.core.handle(command)
+                except Exception as e:
+                    self.ui("Command error: " + str(e))
+                    self.speak("Sorry Boss, I could not process that command. Any other help chahiye Sir aapko?")
+                    self.awake = True
+                    return
+
+        self.ui("Command: " + command + "\n\n" + str(response))
+        spoken = re.sub(r"\s+", " ", str(response)).strip()
+        follow_up = "Any other help chahiye Sir aapko?"
+        self.speak((spoken + " " + follow_up).strip())
+        self.awake = True
 
     def restart_voice(self):
         if self.destroyed:
             return
         self.awake = False
-        self.ui("RESTARTING VYRo V1.7.3...")
+        self.ui("RESTARTING VYRo V1.8...")
         self.cancel_recognition()
         self.post_main(self.start_recognition, 500)
 
@@ -504,7 +638,7 @@ class VoiceEngine:
 
 class VyroApp(App):
     def build(self):
-        self.title = "VYRo V1.7.3"
+        self.title = "VYRo V1.8"
         self.activity = __import__('jnius').autoclass("org.kivy.android.PythonActivity").mActivity
         self.app_files_dir = str(self.activity.getFilesDir().getAbsolutePath())
         self.data_file = os.path.join(self.app_files_dir, "jarvis_data.json")
@@ -512,10 +646,10 @@ class VyroApp(App):
         self.voice = None
 
         root = BoxLayout(orientation="vertical", padding=dp(12), spacing=dp(8))
-        root.add_widget(Label(text="VYRo V1.7.3\nYour Personal AI Assistant", font_size=dp(24), size_hint_y=None, height=dp(90)))
-        self.status = Label(text="STARTING VYRo V1.7.3...", size_hint_y=None, height=dp(35))
+        root.add_widget(Label(text="VYRo V1.8\nYour Personal AI Assistant", font_size=dp(24), size_hint_y=None, height=dp(90)))
+        self.status = Label(text="STARTING VYRo V1.8...", size_hint_y=None, height=dp(35))
         root.add_widget(self.status)
-        self.output = Label(text="Welcome Boss.\n\nVYRo V1.7.3 voice engine starting...", halign="left", valign="top", size_hint_y=None)
+        self.output = Label(text="Welcome Boss.\n\nVYRo V1.8 voice engine starting...", halign="left", valign="top", size_hint_y=None)
         self.output.bind(texture_size=lambda *_: setattr(self.output, "height", self.output.texture_size[1] + dp(20)))
         scroll = ScrollView(); scroll.add_widget(self.output); root.add_widget(scroll)
 
