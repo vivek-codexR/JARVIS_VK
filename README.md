@@ -1,14 +1,15 @@
-# VYRo V1.8.1
+# VYRo V1.8 Background Voice
 
-## Main changes
-- VYRo wake-word detection with common ASR spellings.
-- Wake -> "Yes Boss. How can I help you?" -> command.
-- Command response -> "Any other help chahiye Sir aapko?" -> next command.
-- Time/date/rules/timetable/tasks/summary and task/rule management.
-- Exit/shutdown stops the voice service.
-- UI close does not call service shutdown.
-- Android foreground microphone service for background operation.
-- Stable 3-argument TextToSpeech call; no UtteranceProgressListener.
+This build keeps the working VYRo V1.8 VoiceEngine as the recognition/command base and moves it into an Android foreground microphone service.
 
-## Build
-GitHub Actions workflow builds a debug APK and verifies the APK with `unzip -t` before upload.
+## Flow
+VYRo -> "Yes Boss. How can I help you?" -> command -> response -> "Any other help chahiye Sir aapko?" -> next command.
+
+The service is intended to keep running when the Kivy UI is closed/minimized. It stops on voice commands such as `Shutdown`, `Shut down`, `Exit`, or `OK thanks`.
+
+`open Google`, `open YouTube`, `open Settings`, and Google voice search remain in the V1.8 command path.
+
+## Important
+Android 14+ requires microphone foreground-service declarations. The spec declares `FOREGROUND_SERVICE_MICROPHONE` and the service as `foregroundServiceType=microphone`.
+
+The service is started only while the app is visible after microphone/notification permissions are requested.
