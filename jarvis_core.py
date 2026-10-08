@@ -1,312 +1,195 @@
 import json
 import os
 import re
-from copy import deepcopy
 from datetime import datetime
 
 DEFAULT_DATA = {
-    "rules": [
-        "Study every day",
-        "Exercise for health",
-        "Sleep on time",
-        "Avoid unnecessary phone usage"
-    ],
-    "tasks": [],
+    "rules": ["Study every day", "Exercise for health", "Sleep on time", "Avoid unnecessary phone usage"],
     "timetable": {
         "09:00": "College starts",
         "16:20": "College ends",
         "18:00": "Study / Skill Growth",
         "20:00": "Dinner",
         "21:00": "Revision",
-        "22:30": "Sleep preparation"
-    }
+        "22:30": "Sleep preparation",
+    },
+    "tasks": [],
 }
 
-
 class JarvisCore:
-    def __init__(self, data_file):
-        self.data_file = data_file
+    def __init__(self, path):
+        self.path = path
         self.data = self.load_data()
 
     def load_data(self):
         try:
-            if os.path.exists(self.data_file):
-                with open(self.data_file, "r", encoding="utf-8") as f:
+            if os.path.exists(self.path):
+                with open(self.path, "r", encoding="utf-8") as f:
                     data = json.load(f)
-                if isinstance(data, dict):
-                    data.setdefault("rules", deepcopy(DEFAULT_DATA["rules"]))
-                    data.setdefault("tasks", [])
-                    data.setdefault("timetable", deepcopy(DEFAULT_DATA["timetable"]))
-                    return data
+                for k, v in DEFAULT_DATA.items():
+                    data.setdefault(k, v.copy() if isinstance(v, dict) else list(v))
+                return data
         except Exception:
             pass
-        data = deepcopy(DEFAULT_DATA)
-        self.save_data(data)
+        data = json.loads(json.dumps(DEFAULT_DATA))
+        self._save(data)
         return data
 
-    def save_data(self, data=None):
-        data = data or self.data
-        os.makedirs(os.path.dirname(self.data_file), exist_ok=True)
-        with open(self.data_file, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+    def _save(self, data=None):
+        if data is not None:
+            self.data = data
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        tmp = self.path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(self.data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, self.path)
+
+    @staticmethod
+    def norm(s):
+        s = str(s).lower().strip()
+        s = s.replace("what's", "what is").replace("today's", "today")
+        s = re.sub(r"[^a-z0-9\u0900-\u097f]+", " ", s)
+        return re.sub(r"\s+", " ", s).strip()
+
+    @staticmethod
+    def number(s):
+        m = re.search(r"\b(\d+)\b", s)
+        return int(m.group(1)) if m else None
 
     def handle(self, raw):
-        cmd = re.sub(r"\s+", " ", str(raw).strip().lower()).strip()
+        cmd = self.norm(raw)
         if not cmd:
-            return "I am listening."
+            return "I did not hear a command, Boss."
 
-        # Greetings / identity
-        if cmd in {"hi", "hello", "hey", "hii", "hlo", "good morning",
-                   "good afternoon", "good evening", "namaste", "नमस्ते"}:
-            return "Hello Boss. I am ready to help."
-
-        if cmd in {"who are you", "what are you", "what is your name",
-                   "your name", "who is vyro", "vyro who are you",
-                   "तुम कौन हो", "तुम्हारा नाम क्या है", "वायरो कौन हो"}:
-            return "I am VYRo, your personal AI assistant."
-
-        if cmd in {"how are you", "how are you doing", "कैसे हो",
-                   "वायरो कैसे हो", "तुम कैसे हो"}:
-            return "I am online and ready, Boss."
-
-        if cmd in {"thank you", "thanks", "thankyou", "धन्यवाद", "थैंक यू"}:
-            return "You're welcome, Boss."
-
-        if cmd in {"help", "commands", "what can you do", "what can you do for me",
-                   "क्या कर सकते हो", "क्या कर सकते हो jarvis", "क्या कर सकते हो वायरो"}:
+        if cmd in {"hi", "hello", "hey", "hii", "good morning", "good afternoon", "good evening"}:
+            return "Hello Boss. I am ready."
+        if cmd in {"help", "commands", "what can you do", "what can you do for me"}:
             return self.help_text()
-
-        # Time / date
-        if cmd in {"time", "what time is it", "what is the time",
-                   "current time", "tell me the time", "show time",
-                   "समय क्या है", "टाइम क्या है", "अभी कितने बजे हैं",
-                   "अभी टाइम क्या है", "टाइम बताओ", "समय बताओ"}:
-            return "Current time: " + datetime.now().strftime("%I:%M %p")
-
-        if cmd in {"date", "what is the date", "what date is it",
-                   "today date", "today's date", "current date",
-                   "tell me the date", "show date",
-                   "आज की तारीख", "आज की तारीख क्या है", "आज कौन सी तारीख है",
-                   "आज की डेट क्या है", "डेट बताओ", "तारीख बताओ"}:
-            return "Today: " + datetime.now().strftime("%A, %d %B %Y")
-
-        # Stored information
-        if cmd in {"rules", "rule", "show rules", "show my rules",
-                   "my rules", "daily rules", "मेरे रूल्स दिखाओ",
-                   "मेरे नियम दिखाओ", "रूल्स दिखाओ", "मेरे नियम बताओ",
-                   "रूल्स बताओ"}:
+        if cmd in {"who are you", "what are you", "introduce yourself"}:
+            return "I am VYRo, your personal voice assistant."
+        if cmd in {"how are you", "how are you vyro"}:
+            return "I am online and ready, Boss."
+        if cmd in {"thank you", "thanks", "thank you vyro", "thanks vyro"}:
+            return "You're welcome, Boss."
+        if cmd in {"time", "what time is it", "what is the time", "current time", "tell me the time", "show time", "samay kya hai", "time batao"} or "time bata" in cmd:
+            return "Current time is " + datetime.now().strftime("%I:%M %p")
+        if cmd in {"date", "what is the date", "what date is it", "today date", "today date kya hai", "today ki date kya hai", "aaj ki date kya hai", "current date", "tell me the date", "show date"} or "date kya" in cmd or "tarikh" in cmd:
+            return "Today is " + datetime.now().strftime("%A, %d %B %Y")
+        if cmd in {"rules", "rule", "show rules", "show my rules", "my rules", "daily rules", "mere rules", "mere rules dikhao", "rules dikhao"}:
             return self.show_rules()
-
-        if cmd in {"timetable", "schedule", "show timetable",
-                   "show my timetable", "my timetable", "daily schedule",
-                   "मेरा टाइमटेबल दिखाओ", "टाइमटेबल दिखाओ",
-                   "आज का टाइमटेबल दिखाओ", "मेरा टाइमटेबल बताओ",
-                   "टाइमटेबल बताओ", "शेड्यूल बताओ"}:
+        if cmd in {"timetable", "schedule", "show timetable", "show my timetable", "my timetable", "daily schedule", "mera timetable", "timetable dikhao", "schedule dikhao"}:
             return self.show_timetable()
-
-        if cmd in {"tasks", "task", "show tasks", "show my tasks",
-                   "my tasks", "pending tasks", "todo", "to do",
-                   "मेरे टास्क दिखाओ", "टास्क दिखाओ", "पेंडिंग टास्क दिखाओ",
-                   "मेरे काम बताओ", "मेरे टास्क बताओ"}:
+        if cmd in {"tasks", "task", "show tasks", "show my tasks", "my tasks", "pending tasks", "todo", "to do", "mere tasks", "mere task dikhao", "tasks dikhao"}:
             return self.show_tasks()
-
-        if cmd in {"summary", "daily summary", "my summary",
-                   "today summary", "status", "मेरा समरी दिखाओ",
-                   "आज का समरी दिखाओ", "समरी दिखाओ", "मेरा स्टेटस बताओ"}:
+        if cmd in {"summary", "daily summary", "my summary", "today summary", "status", "daily report"}:
             return self.show_summary()
 
-        # Task creation
-        task = self.extract_after_prefix(cmd, [
-            "add task ", "add a task ", "create task ",
-            "create a task ", "new task ", "remember task ",
-            "task add ", "टास्क जोड़ो ", "टास्क जोड़ना है ",
-            "टास्क ऐड करो ", "टास्क ऐड कर दो ", "काम जोड़ो ",
-            "काम ऐड करो "
-        ])
-        if task:
-            return self.add_task(task)
+        if cmd in {"clear completed", "clear completed tasks", "remove completed tasks", "completed tasks clear karo"}:
+            return self.clear_completed_tasks()
 
-        m = re.match(r"(?:add|create|new)\s+(?:a\s+)?task\s*(?:to\s*)?(.+)$", cmd)
+        m = re.match(r"(?:add|create|new|remember)\s+(?:a\s+)?task\s+(.+)$", cmd)
+        if not m:
+            m = re.match(r"(?:task|kaam)\s+(?:add|banao)\s+(.+)$", cmd)
+        if not m:
+            m = re.match(r"(?:ek\s+)?task\s+add\s+karo\s+(.+)$", cmd)
         if m:
             return self.add_task(m.group(1).strip())
 
-        number = self.extract_number(cmd, ["complete", "finish", "done", "mark"])
-        if number is not None:
-            return self.complete_task(number)
+        if any(x in cmd for x in ["complete", "finish", "mark done", "done karo", "complete karo"]):
+            n = self.number(cmd)
+            if n is not None:
+                return self.complete_task(n)
+        if cmd.startswith(("delete", "remove")) or "delete task" in cmd or "task delete" in cmd:
+            n = self.number(cmd)
+            if n is not None:
+                return self.delete_task(n)
 
-        m = re.search(r"(?:complete|finish|done|mark)\s+(?:task\s+)?(\d+)", cmd)
+        m = re.match(r"(?:add|create|new|remember)\s+(?:a\s+)?rule\s+(.+)$", cmd)
+        if not m:
+            m = re.match(r"rule\s+add\s+karo\s+(.+)$", cmd)
         if m:
-            return self.complete_task(int(m.group(1)))
+            return self.add_rule(m.group(1).strip())
+        if cmd.startswith(("delete rule", "remove rule", "rule delete")):
+            n = self.number(cmd)
+            if n is not None:
+                return self.delete_rule(n)
 
-        number = self.extract_number(cmd, ["delete", "remove"])
-        if number is not None and ("task" in cmd or cmd.startswith(("delete ", "remove "))):
-            return self.delete_task(number)
-
-        m = re.search(r"(?:delete|remove)\s+(?:task\s+)?(\d+)", cmd)
+        m = re.match(r"(?:set|add|change)\s+(?:timetable|schedule)\s+(\d{1,2}:\d{2})\s+(.+)$", cmd)
         if m:
-            return self.delete_task(int(m.group(1)))
+            return self.set_timetable(m.group(1), m.group(2).strip())
 
-        if cmd in {"clear completed", "clear completed tasks",
-                   "remove completed tasks", "completed tasks हटाओ",
-                   "completed task हटाओ", "completed हटाओ"}:
-            return self.clear_completed_tasks()
-
-        # Rule creation/deletion
-        rule = self.extract_after_prefix(cmd, [
-            "add rule ", "add a rule ", "new rule ", "remember rule ",
-            "rule add ", "रूल जोड़ो ", "नियम जोड़ो ", "रूल ऐड करो ",
-            "नियम ऐड करो "
-        ])
-        if rule:
-            return self.add_rule(rule)
-
-        m = re.match(r"(?:delete|remove)\s+(?:rule\s+)?(\d+)\s*$", cmd)
-        if m:
-            return self.delete_rule(int(m.group(1)))
-
-        # Timetable creation. The voice layer can ask for the activity if only
-        # the time is supplied.
-        m = re.match(r"(?:add|set|create)\s+(?:timetable|schedule)\s+(\d{1,2}:\d{2})\s+(.+)$", cmd)
-        if m:
-            if self.valid_time(m.group(1)):
-                key = self.normalize_time(m.group(1))
-                self.data["timetable"][key] = m.group(2).strip()
-                self.save_data()
-                return f"Timetable updated for {key}: {m.group(2).strip()}"
-            return "Invalid time. Use HH:MM, for example 18:30."
-
-        m = re.search(r"(?:timetable|schedule|टाइमटेबल|शेड्यूल).{0,15}(\d{1,2}:\d{2}).{0,10}(.+)", cmd)
-        if m and any(x in cmd for x in ["add", "set", "जोड़", "ऐड", "create"]):
-            if self.valid_time(m.group(1)):
-                key = self.normalize_time(m.group(1))
-                self.data["timetable"][key] = m.group(2).strip()
-                self.save_data()
-                return f"Timetable updated for {key}: {m.group(2).strip()}"
-
-        return "I don't understand that command yet. Say VYRo help for available commands."
-
-    @staticmethod
-    def extract_after_prefix(command, prefixes):
-        for prefix in prefixes:
-            if command.startswith(prefix):
-                value = command[len(prefix):].strip()
-                if value:
-                    return value
-        return None
-
-    @staticmethod
-    def extract_number(command, words):
-        for word in words:
-            m = re.search(r"\b" + re.escape(word) +
-                          r"\s+(?:task\s+)?(\d+)\b", command)
-            if m:
-                return int(m.group(1))
-        return None
-
-    @staticmethod
-    def valid_time(value):
-        try:
-            h, m = map(int, value.split(":"))
-            return 0 <= h <= 23 and 0 <= m <= 59
-        except Exception:
-            return False
-
-    @staticmethod
-    def normalize_time(value):
-        h, m = map(int, value.split(":"))
-        return f"{h:02d}:{m:02d}"
+        return "Sorry Boss, I don't know that command yet. Say help to hear the commands I can do."
 
     def add_task(self, task):
-        self.data["tasks"].append({
-            "task": task,
-            "completed": False,
-            "created": datetime.now().strftime("%d-%m-%Y %I:%M %p")
-        })
-        self.save_data()
-        return f"Task added: {task}"
+        self.data["tasks"].append({"task": task, "completed": False, "created": datetime.now().isoformat(timespec="seconds")})
+        self._save()
+        return "Task added: " + task
 
-    def complete_task(self, number):
-        i = number - 1
+    def complete_task(self, n):
+        i = n - 1
         if not 0 <= i < len(self.data["tasks"]):
-            return f"Task {number} does not exist."
+            return f"Task {n} does not exist."
         self.data["tasks"][i]["completed"] = True
-        self.save_data()
-        return f"Task completed: {self.data['tasks'][i]['task']}"
+        self._save()
+        return "Task completed: " + self.data["tasks"][i]["task"]
 
-    def delete_task(self, number):
-        i = number - 1
+    def delete_task(self, n):
+        i = n - 1
         if not 0 <= i < len(self.data["tasks"]):
-            return f"Task {number} does not exist."
+            return f"Task {n} does not exist."
         removed = self.data["tasks"].pop(i)
-        self.save_data()
-        return f"Task deleted: {removed['task']}"
+        self._save()
+        return "Task deleted: " + removed["task"]
 
     def clear_completed_tasks(self):
         before = len(self.data["tasks"])
         self.data["tasks"] = [x for x in self.data["tasks"] if not x.get("completed")]
-        self.save_data()
+        self._save()
         return f"Removed {before - len(self.data['tasks'])} completed task(s)."
 
     def add_rule(self, rule):
         self.data["rules"].append(rule)
-        self.save_data()
-        return f"Rule added: {rule}"
+        self._save()
+        return "Rule added: " + rule
 
-    def delete_rule(self, number):
-        i = number - 1
+    def delete_rule(self, n):
+        i = n - 1
         if not 0 <= i < len(self.data["rules"]):
-            return f"Rule {number} does not exist."
+            return f"Rule {n} does not exist."
         removed = self.data["rules"].pop(i)
-        self.save_data()
-        return f"Rule deleted: {removed}"
+        self._save()
+        return "Rule deleted: " + removed
+
+    def set_timetable(self, t, activity):
+        h, m = t.split(":")
+        t = f"{int(h):02d}:{int(m):02d}"
+        self.data["timetable"][t] = activity
+        self._save()
+        return f"Timetable updated: {t} is {activity}."
 
     def show_rules(self):
-        return "DAILY RULES\n\n" + "\n".join(
-            f"{i}. {x}" for i, x in enumerate(self.data["rules"], 1)
-        )
+        if not self.data["rules"]:
+            return "You have no rules saved."
+        return "Your daily rules are: " + "; ".join(f"number {i}, {x}" for i, x in enumerate(self.data["rules"], 1))
 
     def show_timetable(self):
-        return "DAILY TIMETABLE\n\n" + "\n".join(
-            f"{t}  ->  {a}"
-            for t, a in sorted(self.data["timetable"].items())
-        )
+        return "Your timetable is: " + "; ".join(f"{t}, {a}" for t, a in sorted(self.data["timetable"].items()))
 
     def show_tasks(self):
         if not self.data["tasks"]:
-            return "TASKS\n\nNo tasks yet."
-        return "TASKS\n\n" + "\n".join(
-            f"{i}. {'[DONE]' if x.get('completed') else '[ ]'} {x['task']}"
-            for i, x in enumerate(self.data["tasks"], 1)
-        )
+            return "You have no tasks yet."
+        return "Your tasks are: " + "; ".join(f"number {i}, {'completed' if x.get('completed') else 'pending'}, {x['task']}" for i, x in enumerate(self.data["tasks"], 1))
 
     def show_summary(self):
         done = sum(1 for x in self.data["tasks"] if x.get("completed"))
         pending = len(self.data["tasks"]) - done
-        return (
-            "DAILY SUMMARY\n\n"
-            f"Date: {datetime.now().strftime('%A, %d %B %Y')}\n"
-            f"Time: {datetime.now().strftime('%I:%M %p')}\n\n"
-            f"Rules: {len(self.data['rules'])}\n"
-            f"Completed tasks: {done}\n"
-            f"Pending tasks: {pending}\n"
-            f"Timetable entries: {len(self.data['timetable'])}"
-        )
+        return (f"Daily summary. Date {datetime.now().strftime('%A, %d %B %Y')}. "
+                f"Time {datetime.now().strftime('%I:%M %p')}. "
+                f"Rules {len(self.data['rules'])}. Completed tasks {done}. Pending tasks {pending}. "
+                f"Timetable entries {len(self.data['timetable'])}.")
 
     @staticmethod
     def help_text():
-        return (
-            "VYRo COMMAND CENTER\n\n"
-            "TIME: time batao / what time is it\n"
-            "DATE: aaj ki date kya hai\n"
-            "RULES: mere rules batao\n"
-            "TIMETABLE: mera timetable batao\n"
-            "TASKS: mere tasks batao\n"
-            "ADD TASK: add task finish Python project\n"
-            "COMPLETE: complete task 1\n"
-            "DELETE: delete task 1\n"
-            "ADD RULE: add rule study 2 hours\n"
-            "SUMMARY: daily summary\n"
-            "IDENTITY: who are you / how are you\n"
-            "APP ACTIONS: open Google, open YouTube, open Settings, search <query>"
-        )
-
+        return ("I can tell time and date; show rules, timetable, tasks and daily summary; "
+                "add, complete and delete tasks; add and delete rules; change timetable entries; "
+                "and answer basic questions. Try: add task finish Python project, complete task 1, or show my tasks.")
